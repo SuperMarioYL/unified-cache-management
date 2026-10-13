@@ -1,0 +1,483 @@
+﻿2026-10-13T09:22:01.5772203Z Current runner version: '2.337.0'
+2026-10-13T09:22:01.5798365Z ##[group]Runner Image Provisioner
+2026-10-13T09:22:01.5799255Z Hosted Compute Agent
+2026-10-13T09:22:01.5799959Z Version: 20261002.596
+2026-10-13T09:22:01.5800590Z Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+2026-10-13T09:22:01.5801294Z Build Date: 2026-10-02T22:28:27Z
+2026-10-13T09:22:01.5802041Z Worker ID: {d0ab9c5e-1df9-4736-997b-06a41a514475}
+2026-10-13T09:22:01.5802850Z Region: westus
+2026-10-13T09:22:01.5803421Z Cloud: Azure
+2026-10-13T09:22:01.5803974Z ##[endgroup]
+2026-10-13T09:22:01.5805886Z ##[group]Operating System
+2026-10-13T09:22:01.5806609Z Ubuntu
+2026-10-13T09:22:01.5807163Z 24.04.5
+2026-10-13T09:22:01.5807743Z LTS
+2026-10-13T09:22:01.5808266Z ##[endgroup]
+2026-10-13T09:22:01.5808840Z ##[group]Runner Image
+2026-10-13T09:22:01.5809489Z Image: ubuntu-24.04
+2026-10-13T09:22:01.5810114Z Version: 20261004.327.1
+2026-10-13T09:22:01.5811522Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+2026-10-13T09:22:01.5813080Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+2026-10-13T09:22:01.5814094Z ##[endgroup]
+2026-10-13T09:22:01.5815440Z ##[group]GITHUB_TOKEN Permissions
+2026-10-13T09:22:01.5817671Z Contents: read
+2026-10-13T09:22:01.5818282Z Metadata: read
+2026-10-13T09:22:01.5818817Z ##[endgroup]
+2026-10-13T09:22:01.5821008Z Secret source: Actions
+2026-10-13T09:22:01.5822396Z Cache mode: write
+2026-10-13T09:22:01.5823186Z Prepare workflow directory
+2026-10-13T09:22:01.6159658Z Prepare all required actions
+2026-10-13T09:22:01.6212480Z Getting action download info
+2026-10-13T09:22:01.9911599Z Download action repository 'actions/checkout@v4.2.2' (SHA:11bd71901bbe5b1630ceea73d27597364c9af683)
+2026-10-13T09:22:02.1200061Z Download action repository 'actions/setup-python@v5.6.0' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+2026-10-13T09:22:02.2358214Z Download action repository 'actions/download-artifact@v4.3.0' (SHA:d3f86a106a0bac45b974a628896c90dbdf5c8093)
+2026-10-13T09:22:02.8300986Z Uses: SuperMarioYL/unified-cache-management/.github/workflows/_build-toolkit.yml@refs/heads/develop (776110b2524bf43eb5e197dcdb96315f9c6c3d8c)
+2026-10-13T09:22:02.8306779Z ##[group] Inputs
+2026-10-13T09:22:02.8307451Z   source_ref: 776110b2524bf43eb5e197dcdb96315f9c6c3d8c
+2026-10-13T09:22:02.8308216Z   plan_artifact: ucm-release-plan-run-38375348617
+2026-10-13T09:22:02.8308868Z ##[endgroup]
+2026-10-13T09:22:02.8309583Z Complete job name: Run common Release core / Wheel · Toolkit / installed (3.12)
+2026-10-13T09:22:02.9150547Z ##[group]Run actions/checkout@v4.2.2
+2026-10-13T09:22:02.9151559Z with:
+2026-10-13T09:22:02.9152091Z   ref: 776110b2524bf43eb5e197dcdb96315f9c6c3d8c
+2026-10-13T09:22:02.9152746Z   persist-credentials: false
+2026-10-13T09:22:02.9153374Z   repository: SuperMarioYL/unified-cache-management
+2026-10-13T09:22:02.9158806Z   token: ***
+2026-10-13T09:22:02.9159317Z   ssh-strict: true
+2026-10-13T09:22:02.9159796Z   ssh-user: git
+2026-10-13T09:22:02.9160287Z   clean: true
+2026-10-13T09:22:02.9160779Z   sparse-checkout-cone-mode: true
+2026-10-13T09:22:02.9161345Z   fetch-depth: 1
+2026-10-13T09:22:02.9161810Z   fetch-tags: false
+2026-10-13T09:22:02.9162293Z   show-progress: true
+2026-10-13T09:22:02.9162778Z   lfs: false
+2026-10-13T09:22:02.9163290Z   submodules: false
+2026-10-13T09:22:02.9163792Z   set-safe-directory: true
+2026-10-13T09:22:02.9164700Z ##[endgroup]
+2026-10-13T09:22:03.0195983Z Syncing repository: SuperMarioYL/unified-cache-management
+2026-10-13T09:22:03.0198383Z ##[group]Getting Git version info
+2026-10-13T09:22:03.0199387Z Working directory is '/home/runner/work/unified-cache-management/unified-cache-management'
+2026-10-13T09:22:03.0201257Z [command]/usr/bin/git version
+2026-10-13T09:22:03.0306535Z git version 2.55.0
+2026-10-13T09:22:03.0336557Z ##[endgroup]
+2026-10-13T09:22:03.0352720Z Temporarily overriding HOME='/home/runner/work/_temp/fa6d19fa-9edc-4aba-8bb1-7f9cf8bf6a4d' before making global git config changes
+2026-10-13T09:22:03.0355749Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-13T09:22:03.0359088Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unified-cache-management/unified-cache-management
+2026-10-13T09:22:03.0416634Z Deleting the contents of '/home/runner/work/unified-cache-management/unified-cache-management'
+2026-10-13T09:22:03.0422446Z ##[group]Initializing the repository
+2026-10-13T09:22:03.0428499Z [command]/usr/bin/git init /home/runner/work/unified-cache-management/unified-cache-management
+2026-10-13T09:22:03.0584442Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-13T09:22:03.0586706Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-13T09:22:03.0588618Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-13T09:22:03.0589463Z hint: call:
+2026-10-13T09:22:03.0589925Z hint:
+2026-10-13T09:22:03.0590685Z hint: 	git config --global init.defaultBranch <name>
+2026-10-13T09:22:03.0591939Z hint:
+2026-10-13T09:22:03.0592796Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-13T09:22:03.0593841Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-13T09:22:03.0594640Z hint:
+2026-10-13T09:22:03.0595506Z hint: 	git branch -m <name>
+2026-10-13T09:22:03.0596414Z hint:
+2026-10-13T09:22:03.0597112Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-13T09:22:03.0598718Z Initialized empty Git repository in /home/runner/work/unified-cache-management/unified-cache-management/.git/
+2026-10-13T09:22:03.0602714Z [command]/usr/bin/git remote add origin https://github.com/SuperMarioYL/unified-cache-management
+2026-10-13T09:22:03.0663236Z ##[endgroup]
+2026-10-13T09:22:03.0664228Z ##[group]Disabling automatic garbage collection
+2026-10-13T09:22:03.0665357Z [command]/usr/bin/git config --local gc.auto 0
+2026-10-13T09:22:03.0701473Z ##[endgroup]
+2026-10-13T09:22:03.0702452Z ##[group]Setting up auth
+2026-10-13T09:22:03.0710904Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T09:22:03.0745904Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T09:22:03.1159594Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T09:22:03.1196475Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T09:22:03.1426046Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-13T09:22:03.1472762Z ##[endgroup]
+2026-10-13T09:22:03.1473621Z ##[group]Fetching the repository
+2026-10-13T09:22:03.1483225Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin 776110b2524bf43eb5e197dcdb96315f9c6c3d8c
+2026-10-13T09:22:03.9204511Z From https://github.com/SuperMarioYL/unified-cache-management
+2026-10-13T09:22:03.9206646Z  * branch            776110b2524bf43eb5e197dcdb96315f9c6c3d8c -> FETCH_HEAD
+2026-10-13T09:22:03.9210804Z ##[endgroup]
+2026-10-13T09:22:03.9212270Z ##[group]Determining the checkout info
+2026-10-13T09:22:03.9214609Z ##[endgroup]
+2026-10-13T09:22:03.9221196Z [command]/usr/bin/git sparse-checkout disable
+2026-10-13T09:22:03.9277635Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-13T09:22:03.9311002Z ##[group]Checking out the ref
+2026-10-13T09:22:03.9316192Z [command]/usr/bin/git checkout --progress --force 776110b2524bf43eb5e197dcdb96315f9c6c3d8c
+2026-10-13T09:22:04.1315561Z Note: switching to '776110b2524bf43eb5e197dcdb96315f9c6c3d8c'.
+2026-10-13T09:22:04.1316269Z 
+2026-10-13T09:22:04.1316682Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-10-13T09:22:04.1318035Z changes and commit them, and you can discard any commits you make in this
+2026-10-13T09:22:04.1318965Z state without impacting any branches by switching back to a branch.
+2026-10-13T09:22:04.1319499Z 
+2026-10-13T09:22:04.1319928Z If you want to create a new branch to retain commits you create, you may
+2026-10-13T09:22:04.1320783Z do so (now or later) by using -c with the switch command. Example:
+2026-10-13T09:22:04.1321280Z 
+2026-10-13T09:22:04.1321500Z   git switch -c <new-branch-name>
+2026-10-13T09:22:04.1321863Z 
+2026-10-13T09:22:04.1322072Z Or undo this operation with:
+2026-10-13T09:22:04.1322395Z 
+2026-10-13T09:22:04.1322650Z   git switch -
+2026-10-13T09:22:04.1322960Z 
+2026-10-13T09:22:04.1323369Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-10-13T09:22:04.1323943Z 
+2026-10-13T09:22:04.1324409Z HEAD is now at 776110b fix(release): complete shared setup and preserve cleanup contracts
+2026-10-13T09:22:04.1330031Z ##[endgroup]
+2026-10-13T09:22:04.1379413Z [command]/usr/bin/git log -1 --format=%H
+2026-10-13T09:22:04.1433853Z 776110b2524bf43eb5e197dcdb96315f9c6c3d8c
+2026-10-13T09:22:04.1442103Z ##[group]Removing auth
+2026-10-13T09:22:04.1446363Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T09:22:04.1481279Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T09:22:04.1722714Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T09:22:04.1753955Z http.https://github.com/.extraheader
+2026-10-13T09:22:04.1761793Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-13T09:22:04.1798163Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T09:22:04.2022247Z ##[endgroup]
+2026-10-13T09:22:04.2292906Z ##[group]Run actions/setup-python@v5.6.0
+2026-10-13T09:22:04.2293523Z with:
+2026-10-13T09:22:04.2293925Z   python-version: 3.12
+2026-10-13T09:22:04.2294386Z   check-latest: false
+2026-10-13T09:22:04.2298421Z   token: ***
+2026-10-13T09:22:04.2298867Z   update-environment: true
+2026-10-13T09:22:04.2299365Z   allow-prereleases: false
+2026-10-13T09:22:04.2299849Z   freethreaded: false
+2026-10-13T09:22:04.2300290Z ##[endgroup]
+2026-10-13T09:22:04.3659794Z ##[group]Installed versions
+2026-10-13T09:22:04.4271391Z (node:2272) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-13T09:22:04.4274756Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-13T09:22:04.4276889Z Successfully set up CPython (3.12.15)
+2026-10-13T09:22:04.4278705Z ##[endgroup]
+2026-10-13T09:22:04.4545284Z ##[group]Run actions/download-artifact@v4.3.0
+2026-10-13T09:22:04.4546824Z with:
+2026-10-13T09:22:04.4547723Z   name: ucm-toolkit-run-38375348617
+2026-10-13T09:22:04.4549031Z   path: input/toolkit
+2026-10-13T09:22:04.4550020Z   merge-multiple: false
+2026-10-13T09:22:04.4551012Z   repository: SuperMarioYL/unified-cache-management
+2026-10-13T09:22:04.4552512Z   run-id: 38375348617
+2026-10-13T09:22:04.4553125Z env:
+2026-10-13T09:22:04.4553870Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T09:22:04.4555631Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+2026-10-13T09:22:04.4557097Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T09:22:04.4558404Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T09:22:04.4559715Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T09:22:04.4561067Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+2026-10-13T09:22:04.4562216Z ##[endgroup]
+2026-10-13T09:22:04.6216906Z Downloading single artifact
+2026-10-13T09:22:04.6361576Z (node:2280) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-13T09:22:04.6365601Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-13T09:22:04.8845537Z Preparing to download the following artifacts:
+2026-10-13T09:22:04.8848346Z - ucm-toolkit-run-38375348617 (ID: 11800787526, Size: 956226, Expected Digest: sha256:8433e7ec056ca18aa109c25c65f8fd2039649e4efdd692582e7688a732a9eca7)
+2026-10-13T09:22:05.3043423Z Redirecting to blob download url: https://productionresultssa19.blob.core.windows.net/actions-results/e85c5855-36db-4460-9b50-6fa44a866daf/workflow-job-run-a8f366bc-55ed-5f67-aee3-f46c037b34d9/artifacts/5e5e0a4559a7bfa5c396b4f729ef3ad4cf41ab1f55699ba2a1457d526db572f3.zip
+2026-10-13T09:22:05.3051695Z Starting download of artifact to: /home/runner/work/unified-cache-management/unified-cache-management/input/toolkit
+2026-10-13T09:22:05.5987681Z (node:2280) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+2026-10-13T09:22:06.0194531Z SHA256 digest of downloaded artifact is 8433e7ec056ca18aa109c25c65f8fd2039649e4efdd692582e7688a732a9eca7
+2026-10-13T09:22:06.0199142Z Artifact download completed successfully.
+2026-10-13T09:22:06.0201708Z Total of 1 artifact(s) downloaded
+2026-10-13T09:22:06.0204247Z Download artifact has finished successfully
+2026-10-13T09:22:06.0398507Z ##[group]Run python -m venv "${RUNNER_TEMP}/toolkit-venv"
+2026-10-13T09:22:06.0400232Z [36;1mpython -m venv "${RUNNER_TEMP}/toolkit-venv"[0m
+2026-10-13T09:22:06.0401752Z [36;1m. "${RUNNER_TEMP}/toolkit-venv/bin/activate"[0m
+2026-10-13T09:22:06.0403364Z [36;1mpython -m pip install --no-deps input/toolkit/*.whl[0m
+2026-10-13T09:22:06.0404816Z [36;1marguments=()[0m
+2026-10-13T09:22:06.0406465Z [36;1mif [ "${VERIFY_NATIVE}" = true ]; then arguments+=(--build-native); fi[0m
+2026-10-13T09:22:06.0408291Z [36;1mpython -I toolkit/tests/smoke_installed.py \[0m
+2026-10-13T09:22:06.0410205Z [36;1m  --distribution "$(jq -r '.distribution' input/toolkit/toolkit-result.json)" \[0m
+2026-10-13T09:22:06.0412606Z [36;1m  --version "$(jq -r '.version' input/toolkit/toolkit-result.json)" "${arguments[@]}"[0m
+2026-10-13T09:22:06.0799351Z shell: /usr/bin/bash -e {0}
+2026-10-13T09:22:06.0800620Z env:
+2026-10-13T09:22:06.0801935Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T09:22:06.0804046Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+2026-10-13T09:22:06.0806078Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T09:22:06.0807702Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T09:22:06.0809311Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-13T09:22:06.0810948Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+2026-10-13T09:22:06.0812453Z   VERIFY_NATIVE: true
+2026-10-13T09:22:06.0813396Z ##[endgroup]
+2026-10-13T09:22:11.1468210Z Processing ./input/toolkit/supermarioyl_ucm_toolkit-0.8.0.dev20261013001-py3-none-any.whl
+2026-10-13T09:22:11.1549055Z Installing collected packages: supermarioyl-ucm-toolkit
+2026-10-13T09:22:11.2828670Z Successfully installed supermarioyl-ucm-toolkit-0.8.0.dev20261013001
+2026-10-13T09:22:11.3762911Z 
+2026-10-13T09:22:11.3763543Z [notice] A new release of pip is available: 25.0.1 -> 26.2.1
+2026-10-13T09:22:11.3764713Z [notice] To update, run: pip install --upgrade pip
+2026-10-13T09:22:11.5486444Z usage: ucm-toolkit [-h] {list,doctor,build,clean,run} ...
+2026-10-13T09:22:11.5487107Z 
+2026-10-13T09:22:11.5487347Z positional arguments:
+2026-10-13T09:22:11.5487934Z   {list,doctor,build,clean,run}
+2026-10-13T09:22:11.5488608Z     list                List top-level toolkit tools
+2026-10-13T09:22:11.5489367Z     doctor              Inspect toolkit tool setup
+2026-10-13T09:22:11.5489927Z     build               Build a toolkit tool
+2026-10-13T09:22:11.5490806Z     clean               Clean a toolkit tool
+2026-10-13T09:22:11.5491226Z     run                 Run a toolkit tool
+2026-10-13T09:22:11.5491498Z 
+2026-10-13T09:22:11.5491620Z options:
+2026-10-13T09:22:11.5491982Z   -h, --help            show this help message and exit
+2026-10-13T09:22:11.5976144Z dev-sandbox    buildable Build the CMake-based dev-sandbox test project.
+2026-10-13T09:22:11.5977486Z metrics-view   runnable  Collect and query Prometheus metrics from a terminal.
+2026-10-13T09:22:11.5978629Z nic-monitor    runnable  Run passive NIC load monitoring.
+2026-10-13T09:22:11.5979628Z posix-aio      runnable  Run the POSIX AIO store test script.
+2026-10-13T09:22:11.5981849Z precheck       runnable  Run UCM environment pre-checks before deploying UCM: serving-stack and uc-manager versions, accelerator driver (CUDA compute capability or Ascend HDK), kernel version, memory & /dev/shm size, and the posix-store bandwidth benchmark. Reports PASS/WARN/FAIL per item with remediation advice for failures.
+2026-10-13T09:22:11.6453574Z usage: ucm-toolkit run dev-sandbox SUBCOMMAND [native args...]
+2026-10-13T09:22:11.6454632Z        ucm-toolkit run dev-sandbox --model-type {gqa|mla} \
+2026-10-13T09:22:11.6455925Z               --iodirect {true|false} --sdma {true|false} [copy native args...]
+2026-10-13T09:22:11.6456619Z 
+2026-10-13T09:22:11.6457068Z Native subcommands (detailed control over copy/trans/aio):
+2026-10-13T09:22:11.6457826Z   aio
+2026-10-13T09:22:11.6458233Z   copy
+2026-10-13T09:22:11.6459173Z   trans
+2026-10-13T09:22:11.6459428Z 
+2026-10-13T09:22:11.6459813Z Friendly mode (map model-type/iodirect/sdma to a copy case,
+2026-10-13T09:22:11.6460758Z remaining args are forwarded verbatim to the copy binary):
+2026-10-13T09:22:11.6461339Z   --model-type {gqa|mla}     required selector
+2026-10-13T09:22:11.6461815Z   --iodirect   {true|false}  required selector
+2026-10-13T09:22:11.6462271Z   --sdma       {true|false}  required selector
+2026-10-13T09:22:11.6462877Z   e.g. --model-type gqa --iodirect false --sdma false -s 16K -n 512 -i 128 -d 8
+2026-10-13T09:22:11.6463345Z 
+2026-10-13T09:22:11.6463528Z model-type/iodirect/sdma -> Ascend copy case:
+2026-10-13T09:22:11.6464108Z   gqa iodirect=False sdma=False -> all_host_to_all_device_ce_multi_stream
+2026-10-13T09:22:11.6464871Z   gqa iodirect=True  sdma=False -> all_odirect_host_to_all_device_ce_multi_stream
+2026-10-13T09:22:11.6465974Z   gqa iodirect=False sdma=True  -> all_host_to_all_device_ffts_direct_h2d
+2026-10-13T09:22:11.6466710Z   gqa iodirect=True  sdma=True  -> all_odirect_host_to_all_device_ffts_direct_h2d
+2026-10-13T09:22:11.6467461Z   mla iodirect=False sdma=False -> one_share_host_to_all_device_ce_multi_stream
+2026-10-13T09:22:11.6467984Z   mla iodirect=True  sdma=False -> one_share_host_to_all_device_ce_multi_stream
+2026-10-13T09:22:11.6468480Z   mla iodirect=False sdma=True  -> one_share_host_to_all_device_ffts_direct_h2d
+2026-10-13T09:22:11.6468969Z   mla iodirect=True  sdma=True  -> one_share_host_to_all_device_ffts_direct_h2d
+2026-10-13T09:22:11.7630842Z usage: ucm-toolkit [-h] {check,start,stop,status,query,list-configs,clean} ...
+2026-10-13T09:22:11.7631384Z 
+2026-10-13T09:22:11.7631580Z Collect and query Prometheus metrics in SQLite
+2026-10-13T09:22:11.7631901Z 
+2026-10-13T09:22:11.7632044Z positional arguments:
+2026-10-13T09:22:11.7632468Z   {check,start,stop,status,query,list-configs,clean}
+2026-10-13T09:22:11.7633015Z     check               Scrape once and show config values
+2026-10-13T09:22:11.7633566Z     start               Start background metrics collection
+2026-10-13T09:22:11.7634087Z     stop                Stop background metrics collection
+2026-10-13T09:22:11.7634591Z     status              Show background collector status
+2026-10-13T09:22:11.7635436Z     query               Query collected metrics once
+2026-10-13T09:22:11.7635924Z     list-configs        List bundled config presets
+2026-10-13T09:22:11.7636424Z     clean               Clear the metrics SQLite database
+2026-10-13T09:22:11.7636737Z 
+2026-10-13T09:22:11.7637152Z options:
+2026-10-13T09:22:11.7637496Z   -h, --help            show this help message and exit
+2026-10-13T09:22:11.8178496Z usage: ucm-toolkit run nic-monitor { fg [interval_sec] | bg [duration_hours] [interval_sec] } [options]
+2026-10-13T09:22:11.8179158Z 
+2026-10-13T09:22:11.8179352Z Passive physical NIC traffic monitor.
+2026-10-13T09:22:11.8179652Z 
+2026-10-13T09:22:11.8179785Z Options:
+2026-10-13T09:22:11.8180272Z   --log-dir PATH                 Background log directory (default: ./net_log)
+2026-10-13T09:22:11.8181013Z   --stat-cycle-seconds SECONDS   Background summary interval (default: 3600)
+2026-10-13T09:22:11.8181430Z 
+2026-10-13T09:22:11.8181540Z Examples:
+2026-10-13T09:22:11.8181809Z   ucm-toolkit run nic-monitor fg
+2026-10-13T09:22:11.8182157Z   ucm-toolkit run nic-monitor fg 5
+2026-10-13T09:22:11.8182513Z   ucm-toolkit run nic-monitor bg
+2026-10-13T09:22:11.8182858Z   ucm-toolkit run nic-monitor bg 24 5
+2026-10-13T09:22:11.8183316Z   ucm-toolkit run nic-monitor bg 24 5 --log-dir /mnt/test/net_log
+2026-10-13T09:22:11.8183885Z   ucm-toolkit run nic-monitor bg 24 5 --stat-cycle-seconds 600
+2026-10-13T09:22:11.8184225Z 
+2026-10-13T09:22:11.8184472Z The underlying script requires root privileges for ethtool access.
+2026-10-13T09:22:11.8683791Z usage: ucm-toolkit run posix-aio [-h] [-w WORKER_NUMBER] [-s SHARD_SIZE]
+2026-10-13T09:22:11.8684459Z                                  [-n SHARD_NUMBER] [-b BLOCK_NUMBER]
+2026-10-13T09:22:11.8685872Z                                  [-d DUMP_EPOCH_NUMBER] [-l LOAD_EPOCH_NUMBER]
+2026-10-13T09:22:11.8686603Z                                  [-o STORAGE_BACKEND] [--model MODEL]
+2026-10-13T09:22:11.8687113Z                                  [--tp TP] [--input-len INPUT_LEN]
+2026-10-13T09:22:11.8687629Z                                  [--layerwise | --no-layerwise]
+2026-10-13T09:22:11.8688098Z                                  [--block-size BLOCK_SIZE]
+2026-10-13T09:22:11.8688556Z                                  [--kv-dtype KV_DTYPE]
+2026-10-13T09:22:11.8689197Z                                  [--posix-data-trans-concurrency POSIX_DATA_TRANS_CONCURRENCY]
+2026-10-13T09:22:11.8689830Z                                  [--posix-io-engine {psync,aio}]
+2026-10-13T09:22:11.8690353Z                                  [--io-direct | --no-io-direct] [--dry-run]
+2026-10-13T09:22:11.8690701Z 
+2026-10-13T09:22:11.8690855Z Run the POSIX AIO store benchmark.
+2026-10-13T09:22:11.8691113Z 
+2026-10-13T09:22:11.8691225Z options:
+2026-10-13T09:22:11.8691564Z   -h, --help            show this help message and exit
+2026-10-13T09:22:11.8692071Z   -w WORKER_NUMBER, --worker-number WORKER_NUMBER
+2026-10-13T09:22:11.8692604Z                         worker number: number of worker processes to start
+2026-10-13T09:22:11.8693106Z                         concurrently.
+2026-10-13T09:22:11.8693496Z   -s SHARD_SIZE, --shard-size SHARD_SIZE
+2026-10-13T09:22:11.8694000Z                         shard size: POSIX store I/O size. In layerwise mode,
+2026-10-13T09:22:11.8694576Z                         this is the K/V tensor size for one layer of one
+2026-10-13T09:22:11.8695488Z                         block. In non-layerwise mode, this is the K/V tensor
+2026-10-13T09:22:11.8696020Z                         size for all layers of one block.
+2026-10-13T09:22:11.8696484Z   -n SHARD_NUMBER, --shard-number SHARD_NUMBER
+2026-10-13T09:22:11.8697008Z                         shard number: number of layers in layerwise mode; use
+2026-10-13T09:22:11.8697534Z                         1 in non-layerwise mode.
+2026-10-13T09:22:11.8697988Z   -b BLOCK_NUMBER, --block-number BLOCK_NUMBER
+2026-10-13T09:22:11.8698453Z                         block number: total number of blocks.
+2026-10-13T09:22:11.8698988Z   -d DUMP_EPOCH_NUMBER, --dump-epoch-number DUMP_EPOCH_NUMBER
+2026-10-13T09:22:11.8699538Z                         dump epoch number: number of dump epochs.
+2026-10-13T09:22:11.8700081Z   -l LOAD_EPOCH_NUMBER, --load-epoch-number LOAD_EPOCH_NUMBER
+2026-10-13T09:22:11.8700612Z                         load epoch number: number of load epochs.
+2026-10-13T09:22:11.8701303Z   -o STORAGE_BACKEND, --storage-backend STORAGE_BACKEND
+2026-10-13T09:22:11.8701840Z                         storage backend: storage backend path; may be
+2026-10-13T09:22:11.8702190Z                         repeated.
+2026-10-13T09:22:11.8702532Z   --model MODEL         model directory (or config.json) for model-driven
+2026-10-13T09:22:11.8702974Z                         mode. When set, shard-size/shard-number/block-number
+2026-10-13T09:22:11.8703388Z                         are computed from the model config and override any
+2026-10-13T09:22:11.8703749Z                         manually provided values.
+2026-10-13T09:22:11.8704116Z   --tp TP               tensor parallel size; divides num_kv_heads per rank
+2026-10-13T09:22:11.8704480Z                         for GQA.
+2026-10-13T09:22:11.8704821Z   --input-len INPUT_LEN
+2026-10-13T09:22:11.8705418Z                         request input length; block_number = ceil(input_len /
+2026-10-13T09:22:11.8705825Z                         block_size).
+2026-10-13T09:22:11.8706087Z   --layerwise, --no-layerwise
+2026-10-13T09:22:11.8706399Z                         layerwise mode: one shard = one layer (default true;
+2026-10-13T09:22:11.8706794Z                         --no-layerwise for non-layerwise, one shard = all
+2026-10-13T09:22:11.8707122Z                         layers).
+2026-10-13T09:22:11.8707363Z   --block-size BLOCK_SIZE
+2026-10-13T09:22:11.8707653Z                         vLLM paged block size in tokens; used to derive
+2026-10-13T09:22:11.8708127Z                         block_number from input-len.
+2026-10-13T09:22:11.8708514Z   --kv-dtype KV_DTYPE   override KV dtype: bfloat16/bf16, float16/fp16,
+2026-10-13T09:22:11.8708931Z                         float32/fp32, float8_e4m3fn/fp8, float8_e5m2, int8.
+2026-10-13T09:22:11.8709299Z                         Default: config torch_dtype or bfloat16.
+2026-10-13T09:22:11.8709683Z   --posix-data-trans-concurrency POSIX_DATA_TRANS_CONCURRENCY
+2026-10-13T09:22:11.8710510Z                         posix data transfer concurrency (psync worker count).
+2026-10-13T09:22:11.8711081Z                         Default 32.
+2026-10-13T09:22:11.8711528Z   --posix-io-engine {psync,aio}
+2026-10-13T09:22:11.8712015Z                         posix io engine: psync or aio. Default aio.
+2026-10-13T09:22:11.8712546Z   --io-direct, --no-io-direct
+2026-10-13T09:22:11.8713090Z                         use O_DIRECT for aligned file I/O (default true; --no-
+2026-10-13T09:22:11.8713641Z                         io-direct to disable).
+2026-10-13T09:22:11.8714014Z   --dry-run             print the computed profile and the forwarded command
+2026-10-13T09:22:11.8714411Z                         without launching the script.
+2026-10-13T09:22:12.0117486Z usage: precheck [-h] [--version] [--config FILE] [--mount-path PATH]
+2026-10-13T09:22:12.0118219Z                 [--shard-sizes LIST] [--workers LIST] [--engines LIST]
+2026-10-13T09:22:12.0118789Z                 [--modes LIST] [--threshold GB] [--block-number N]
+2026-10-13T09:22:12.0119378Z                 [--dump-epochs N] [--load-epochs N] [--mixed-epochs N]
+2026-10-13T09:22:12.0119982Z                 [--rw-ratio N] [--quick] [--skip-bandwidth] [--kernel-min VER]
+2026-10-13T09:22:12.0120580Z                 [--cuda-min-compute-cap N] [--ascend-min-hdk VER]
+2026-10-13T09:22:12.0121156Z                 [--only CHECK] [--skip CHECK] [--strict] [--no-color] [--json]
+2026-10-13T09:22:12.0121668Z                 [--verbose]
+2026-10-13T09:22:12.0121881Z 
+2026-10-13T09:22:12.0122201Z UCM environment pre-check (versions, kernel, memory, storage bandwidth).
+2026-10-13T09:22:12.0122644Z 
+2026-10-13T09:22:12.0122758Z options:
+2026-10-13T09:22:12.0123098Z   -h, --help            show this help message and exit
+2026-10-13T09:22:12.0123645Z   --version             show program's version number and exit
+2026-10-13T09:22:12.0124267Z   --config FILE         load thresholds/matrix from a JSON or YAML file (YAML
+2026-10-13T09:22:12.0124799Z                         needs PyYAML)
+2026-10-13T09:22:12.0126045Z   --mount-path PATH     UCM storage mount point (required for the bandwidth
+2026-10-13T09:22:12.0126569Z                         benchmark)
+2026-10-13T09:22:12.0126786Z 
+2026-10-13T09:22:12.0126904Z bandwidth matrix:
+2026-10-13T09:22:12.0127299Z   --shard-sizes LIST    comma-separated shard sizes, e.g. '180k,1m'
+2026-10-13T09:22:12.0127922Z   --workers LIST        comma-separated worker counts, e.g. '1,16'
+2026-10-13T09:22:12.0128526Z   --engines LIST        comma-separated IO engines, subset of 'psync,aio'
+2026-10-13T09:22:12.0129031Z                         (default psync)
+2026-10-13T09:22:12.0129494Z   --modes LIST          comma-separated phases to run per combo: subset of
+2026-10-13T09:22:12.0130051Z                         'dump,read,mix' (default all; mix = read-heavy
+2026-10-13T09:22:12.0130475Z                         1:rw_ratio)
+2026-10-13T09:22:12.0130946Z   --threshold GB        minimum best aggregate bandwidth in GB/s (default 8.0)
+2026-10-13T09:22:12.0131499Z   --block-number N      blocks per dump/load sweep
+2026-10-13T09:22:12.0131945Z   --dump-epochs N       dump sweeps per combo
+2026-10-13T09:22:12.0132343Z   --load-epochs N       load sweeps per combo
+2026-10-13T09:22:12.0132853Z   --mixed-epochs N      read-heavy mixed sweeps per combo (1 dump + rw_ratio
+2026-10-13T09:22:12.0133349Z                         loads each)
+2026-10-13T09:22:12.0133791Z   --rw-ratio N          reads per write in the mixed phase (read-heavy; 0
+2026-10-13T09:22:12.0134436Z                         disables mixed, default 4)
+2026-10-13T09:22:12.0134838Z   --quick               halve dump/load/mixed epochs for a faster run
+2026-10-13T09:22:12.0135410Z   --skip-bandwidth      skip the (slow) bandwidth benchmark entirely
+2026-10-13T09:22:12.0135679Z 
+2026-10-13T09:22:12.0135763Z thresholds:
+2026-10-13T09:22:12.0136055Z   --kernel-min VER      minimum kernel version, strictly greater (default
+2026-10-13T09:22:12.0136424Z                         '5.10')
+2026-10-13T09:22:12.0136675Z   --cuda-min-compute-cap N
+2026-10-13T09:22:12.0136979Z                         minimum CUDA compute capability (default 8.0)
+2026-10-13T09:22:12.0137411Z   --ascend-min-hdk VER  minimum Ascend HDK version, strictly greater (default
+2026-10-13T09:22:12.0137791Z                         '25.2.0')
+2026-10-13T09:22:12.0137949Z 
+2026-10-13T09:22:12.0138031Z selection / output:
+2026-10-13T09:22:12.0138318Z   --only CHECK          run only this check (repeatable); choices:
+2026-10-13T09:22:12.0138721Z                         serving_stack, uc_manager, accelerator_driver, kernel,
+2026-10-13T09:22:12.0139099Z                         memory_shm, aio_resources, bandwidth
+2026-10-13T09:22:12.0139446Z   --skip CHECK          skip this check (repeatable)
+2026-10-13T09:22:12.0139856Z   --strict              treat warnings as failures for the exit code
+2026-10-13T09:22:12.0140210Z   --no-color            disable ANSI color output
+2026-10-13T09:22:12.0140551Z   --json                emit machine-readable JSON
+2026-10-13T09:22:12.0140867Z   --verbose             show extra detail
+2026-10-13T09:22:12.1043664Z connector	/home/runner/work/_temp/toolkit-venv/lib/python3.12/site-packages/ucm_toolkit/tools/metrics_view/configs/connector.json
+2026-10-13T09:22:12.1045497Z metrics_lite	/home/runner/work/_temp/toolkit-venv/lib/python3.12/site-packages/ucm_toolkit/tools/metrics_view/configs/metrics_lite.json
+2026-10-13T09:22:12.1046842Z store	/home/runner/work/_temp/toolkit-venv/lib/python3.12/site-packages/ucm_toolkit/tools/metrics_view/configs/store.json
+2026-10-13T09:22:12.1048096Z vllm	/home/runner/work/_temp/toolkit-venv/lib/python3.12/site-packages/ucm_toolkit/tools/metrics_view/configs/vllm.json
+2026-10-13T09:22:12.1595733Z [dry-run] would run: /home/runner/work/_temp/toolkit-venv/bin/python /home/runner/work/_temp/toolkit-venv/lib/python3.12/site-packages/ucm_toolkit/_resources/posixstore_aio_test.py --posix-data-trans-concurrency 32 --posix-io-engine aio --io-direct
+2026-10-13T09:22:13.7947025Z -- The CXX compiler identification is GNU 13.3.0
+2026-10-13T09:22:13.8967954Z -- Detecting CXX compiler ABI info
+2026-10-13T09:22:14.1238224Z -- Detecting CXX compiler ABI info - done
+2026-10-13T09:22:14.1415554Z -- Check for working CXX compiler: /usr/bin/c++ - skipped
+2026-10-13T09:22:14.1458599Z -- Detecting CXX compile features
+2026-10-13T09:22:14.1507594Z -- Detecting CXX compile features - done
+2026-10-13T09:22:14.1705807Z -- No GPU runtime found, using CPU simulation mode
+2026-10-13T09:22:14.1823255Z -- {fmt} version: 11.2.0
+2026-10-13T09:22:14.1823605Z -- Build type: Release
+2026-10-13T09:22:14.2085675Z -- Configuring done (1.6s)
+2026-10-13T09:22:14.2279285Z CMake Warning:
+2026-10-13T09:22:14.2279852Z   Manually-specified variables were not used by the project:
+2026-10-13T09:22:14.2280334Z 
+2026-10-13T09:22:14.2280476Z     ASCEND_ROOT
+2026-10-13T09:22:14.2280831Z     CUDA_ROOT
+2026-10-13T09:22:14.2281027Z 
+2026-10-13T09:22:14.2281034Z 
+2026-10-13T09:22:14.2281212Z -- Generating done (0.0s)
+2026-10-13T09:22:14.2284173Z -- Build files have been written to: /tmp/ucm-toolkit-smoke-haya5p6b/native
+2026-10-13T09:22:14.2522148Z [  5%] Building CXX object vendor/fmt/CMakeFiles/fmt.dir/src/format.cc.o
+2026-10-13T09:22:14.2523536Z [ 10%] Building CXX object vendor/fmt/CMakeFiles/fmt.dir/src/os.cc.o
+2026-10-13T09:22:18.1759670Z [ 15%] Linking CXX static library libfmt.a
+2026-10-13T09:22:24.6097070Z [ 15%] Built target fmt
+2026-10-13T09:22:24.6168987Z [ 21%] Building CXX object module/logger/CMakeFiles/logger.dir/logger.cc.o
+2026-10-13T09:22:24.6170792Z [ 26%] Building CXX object module/aio/CMakeFiles/aio.dir/aio_main.cc.o
+2026-10-13T09:22:26.5968112Z [ 31%] Building CXX object module/aio/CMakeFiles/aio.dir/aio_impl.cc.o
+2026-10-13T09:22:26.8659894Z [ 36%] Linking CXX static library liblogger.a
+2026-10-13T09:22:26.9524784Z [ 36%] Built target logger
+2026-10-13T09:22:26.9615212Z [ 42%] Building CXX object module/copy/CMakeFiles/copy.dir/copy_main.cc.o
+2026-10-13T09:22:27.2235857Z [ 47%] Building CXX object module/aio/CMakeFiles/aio.dir/host_buffer.cc.o
+2026-10-13T09:22:27.2830146Z [ 52%] Linking CXX executable aio
+2026-10-13T09:22:27.3381333Z [ 52%] Built target aio
+2026-10-13T09:22:27.3454461Z [ 57%] Building CXX object module/trans/CMakeFiles/trans.dir/trans_main.cc.o
+2026-10-13T09:22:27.7557126Z [ 63%] Building CXX object module/copy/CMakeFiles/copy.dir/simu/copy_case_simu.cc.o
+2026-10-13T09:22:29.2268830Z [ 68%] Building CXX object module/copy/CMakeFiles/copy.dir/simu/copy_runtime_simu.cc.o
+2026-10-13T09:22:29.2435998Z [ 73%] Linking CXX executable copy
+2026-10-13T09:22:29.2995124Z [ 73%] Built target copy
+2026-10-13T09:22:29.3018409Z [ 78%] Building CXX object module/trans/CMakeFiles/trans.dir/simu/trans_runtime_simu.cc.o
+2026-10-13T09:22:29.3092176Z [ 84%] Building CXX object module/trans/CMakeFiles/trans.dir/simu/trans_case_simu.cc.o
+2026-10-13T09:22:29.3246000Z [ 89%] Building CXX object module/logger/CMakeFiles/logger_example.dir/logger_example.cc.o
+2026-10-13T09:22:30.3866193Z [ 94%] Linking CXX executable logger_example
+2026-10-13T09:22:30.4420123Z [ 94%] Built target logger_example
+2026-10-13T09:22:30.9234165Z [100%] Linking CXX executable trans
+2026-10-13T09:22:30.9749090Z [100%] Built target trans
+2026-10-13T09:22:31.0337770Z dev-sandbox:
+2026-10-13T09:22:31.0338760Z   source_dir: /home/runner/work/_temp/toolkit-venv/lib/python3.12/site-packages/ucm_toolkit/_resources/dev-sandbox OK
+2026-10-13T09:22:31.0339896Z   build_dir:  /tmp/ucm-toolkit-smoke-haya5p6b/native OK
+2026-10-13T09:22:31.0340696Z   copy : /tmp/ucm-toolkit-smoke-haya5p6b/native/module/copy/copy OK
+2026-10-13T09:22:31.0341476Z   trans: /tmp/ucm-toolkit-smoke-haya5p6b/native/module/trans/trans OK
+2026-10-13T09:22:31.0342207Z   aio  : /tmp/ucm-toolkit-smoke-haya5p6b/native/module/aio/aio OK
+2026-10-13T09:22:31.0838592Z [[ host_to_anonymous_memcpy ]] memcpy from host to anonymous one by one
+2026-10-13T09:22:31.0839847Z   From              To                Method    Size(KB)  Count   Submit(us)-(Min/Max/Avg/P50/P90)        Copy(us)-(Min/Max/Avg/P50/P90)              BW(GB/s)
+2026-10-13T09:22:31.0841732Z   simu::host::0     simu::anon::0     memcpy    1         1       0 / 0 / 0 / 0 / 0                       0 / 0 / 0 / 0 / 0                           inf
+2026-10-13T09:22:31.1342783Z [[ INPUTS ]]
+2026-10-13T09:22:31.1343133Z   TransArgs::hosts = [normal]
+2026-10-13T09:22:31.1343438Z   TransArgs::devices = [normal]
+2026-10-13T09:22:31.1343719Z   TransArgs::methods = [memcpy]
+2026-10-13T09:22:31.1344224Z   TransArgs::type = H2D
+2026-10-13T09:22:31.1344649Z   TransArgs::size = 1024
+2026-10-13T09:22:31.1345321Z   TransArgs::number = 1
+2026-10-13T09:22:31.1345714Z   TransArgs::nDevice = 1
+2026-10-13T09:22:31.1346096Z   TransArgs::nIteration = 1
+2026-10-13T09:22:31.1346666Z [H2D] trans form host(normal) to device(normal) with `memcpy`
+2026-10-13T09:22:31.1347818Z   From                  To                    Method          Size(KB)  Count   Submit(us)-(Min/Max/Avg/P50/P90)        Copy(us)-(Min/Max/Avg/P50/P90)              BW(GB/s)
+2026-10-13T09:22:31.1349256Z   host::normal::0       device::normal::0     memcpy          1         1       17 / 17 / 17 / 17 / 17                  35 / 35 / 35 / 35 / 35                      0.027
+2026-10-13T09:22:31.1850008Z would remove: /tmp/ucm-toolkit-smoke-haya5p6b/native
+2026-10-13T09:22:31.2403779Z removed: /tmp/ucm-toolkit-smoke-haya5p6b/native
+2026-10-13T09:22:31.2485934Z Installed supermarioyl-ucm-toolkit 0.8.0.dev20261013001: smoke passed
+2026-10-13T09:22:31.2727322Z Post job cleanup.
+2026-10-13T09:22:31.3972151Z (node:2559) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-13T09:22:31.3973182Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-13T09:22:31.4171187Z Post job cleanup.
+2026-10-13T09:22:31.5097140Z [command]/usr/bin/git version
+2026-10-13T09:22:31.5140318Z git version 2.55.0
+2026-10-13T09:22:31.5180579Z Temporarily overriding HOME='/home/runner/work/_temp/65045279-2497-4698-8ba6-c7a11d822e21' before making global git config changes
+2026-10-13T09:22:31.5181904Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-13T09:22:31.5186579Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unified-cache-management/unified-cache-management
+2026-10-13T09:22:31.5229968Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T09:22:31.5267470Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T09:22:31.5561557Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T09:22:31.5607564Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T09:22:31.6115390Z Cleaning up orphan processes
+2026-10-13T09:22:31.6437004Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4.2.2, actions/download-artifact@v4.3.0, actions/setup-python@v5.6.0. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

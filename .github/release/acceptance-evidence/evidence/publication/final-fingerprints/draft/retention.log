@@ -1,0 +1,359 @@
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	﻿2026-10-13T13:09:13.1214558Z Current runner version: '2.337.0'
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1232301Z ##[group]Runner Image Provisioner
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1232962Z Hosted Compute Agent
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1233335Z Version: 20261002.596
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1233723Z Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1234198Z Build Date: 2026-10-02T22:28:27Z
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1234645Z Worker ID: {a70ca720-ffce-4ec7-9c47-e47b1840fd98}
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1235138Z Region: centralus
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1235508Z Cloud: Azure
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1235849Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1236903Z ##[group]Operating System
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1237335Z Ubuntu
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1237702Z 24.04.5
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1238035Z LTS
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1238365Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1238772Z ##[group]Runner Image
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1239179Z Image: ubuntu-24.04
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1239563Z Version: 20261004.327.1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1240346Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1241264Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1242140Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1242975Z ##[group]GITHUB_TOKEN Permissions
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1244468Z Actions: write
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1244877Z Contents: write
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1245257Z Metadata: read
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1245595Z Packages: write
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1246013Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1247337Z Secret source: Actions
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1247984Z Cache mode: write
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.1248535Z Prepare workflow directory
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.2117632Z Prepare all required actions
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.2162225Z Getting action download info
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.4750210Z Download action repository 'actions/checkout@v4.2.2' (SHA:11bd71901bbe5b1630ceea73d27597364c9af683)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:13.7641396Z Download action repository 'actions/setup-python@v5.6.0' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3160158Z Uses: SuperMarioYL/unified-cache-management/.github/workflows/release-ucm.yml@refs/tags/draft/v0.8.2-1 (3d6a11b01167c40b28ee6a08c7d7454d23940674)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3164427Z ##[group] Inputs
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3164923Z   git_tag: draft/v0.8.2-1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3165410Z   release_type: draft
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3165857Z   version: 0.8.2.dev1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3166311Z   chart_version: 0.8.2-draft.1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3166807Z   image_version: 0.8.2.dev1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3167279Z   release_kind: draft
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3167995Z   is_prerelease: true
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3168515Z   source_sha: 3d6a11b01167c40b28ee6a08c7d7454d23940674
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3169124Z   publication_scope: fork
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3169601Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3170277Z Complete job name: Run Release core / Cleanup · Retain the configured same-type Releases
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3717595Z ##[group]Run actions/checkout@v4.2.2
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3718085Z with:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3718374Z   persist-credentials: false
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3718768Z   repository: SuperMarioYL/unified-cache-management
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3721116Z   token: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3721379Z   ssh-strict: true
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3721968Z   ssh-user: git
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3722381Z   clean: true
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3722815Z   sparse-checkout-cone-mode: true
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3723326Z   fetch-depth: 1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3723694Z   fetch-tags: false
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3723972Z   show-progress: true
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3724254Z   lfs: false
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3724513Z   submodules: false
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3724800Z   set-safe-directory: true
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3725231Z env:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3727383Z   GH_TOKEN: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3727703Z   GH_REPO: SuperMarioYL/unified-cache-management
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3728077Z   RELEASE_TAG: draft/v0.8.2-1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3728423Z   RELEASE_TYPE: draft
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3728722Z   FORK_TEST_PYPI: true
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3729040Z   DOCKERHUB_NAMESPACE: docker.io/***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3729587Z   DOCKERHUB_USERNAME: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3729941Z   DOCKERHUB_TOKEN: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.3730226Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4441938Z Syncing repository: SuperMarioYL/unified-cache-management
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4443662Z ##[group]Getting Git version info
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4444530Z Working directory is '/home/runner/work/unified-cache-management/unified-cache-management'
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4446461Z [command]/usr/bin/git version
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4462493Z git version 2.55.0
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4480387Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4489538Z Temporarily overriding HOME='/home/runner/work/_temp/c5a126b8-aed4-4528-9f14-5a01c86948f6' before making global git config changes
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4490886Z Adding repository directory to the temporary git global config as a safe directory
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4493270Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unified-cache-management/unified-cache-management
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4566270Z Deleting the contents of '/home/runner/work/unified-cache-management/unified-cache-management'
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4567633Z ##[group]Initializing the repository
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4569950Z [command]/usr/bin/git init /home/runner/work/unified-cache-management/unified-cache-management
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4879625Z hint: Using 'master' as the name for the initial branch. This default branch name
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4881279Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4882731Z hint: to use in all of your new repositories, which will suppress this warning,
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4883613Z hint: call:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4884125Z hint:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4884788Z hint: 	git config --global init.defaultBranch <name>
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4885530Z hint:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4886310Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4887400Z hint: 'development'. The just-created branch can be renamed via this command:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4888318Z hint:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4888873Z hint: 	git branch -m <name>
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4889496Z hint:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4890317Z hint: Disable this message with "git config set advice.defaultBranchName false"
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4892068Z Initialized empty Git repository in /home/runner/work/unified-cache-management/unified-cache-management/.git/
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.4894791Z [command]/usr/bin/git remote add origin https://github.com/SuperMarioYL/unified-cache-management
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5063608Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5064111Z ##[group]Disabling automatic garbage collection
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5066202Z [command]/usr/bin/git config --local gc.auto 0
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5173611Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5174363Z ##[group]Setting up auth
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5175116Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5202369Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5502369Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5530138Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5707498Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5767017Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5767634Z ##[group]Fetching the repository
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:14.5775028Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +3d6a11b01167c40b28ee6a08c7d7454d23940674:refs/tags/draft/v0.8.2-1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:15.9241491Z From https://github.com/SuperMarioYL/unified-cache-management
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:15.9242347Z  * [new ref]         3d6a11b01167c40b28ee6a08c7d7454d23940674 -> draft/v0.8.2-1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:15.9245606Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:15.9246132Z ##[group]Determining the checkout info
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:15.9248034Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:15.9252797Z [command]/usr/bin/git sparse-checkout disable
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:15.9426794Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:15.9526877Z ##[group]Checking out the ref
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:15.9530151Z [command]/usr/bin/git checkout --progress --force refs/tags/draft/v0.8.2-1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1901483Z Note: switching to 'refs/tags/draft/v0.8.2-1'.
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1901976Z 
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1902170Z You are in 'detached HEAD' state. You can look around, make experimental
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1902641Z changes and commit them, and you can discard any commits you make in this
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1903137Z state without impacting any branches by switching back to a branch.
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1903485Z 
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1903687Z If you want to create a new branch to retain commits you create, you may
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1904098Z do so (now or later) by using -c with the switch command. Example:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1904321Z 
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1904449Z   git switch -c <new-branch-name>
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1904606Z 
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1904700Z Or undo this operation with:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1904844Z 
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1904935Z   git switch -
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1905082Z 
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1905303Z Turn off this advice by setting config variable advice.detachedHead to false
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1905572Z 
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1905761Z HEAD is now at 3d6a11b fix(cleanup): normalize absent Docker Hub probe results
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1919780Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1968765Z [command]/usr/bin/git log -1 --format=%H
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.1992996Z 3d6a11b01167c40b28ee6a08c7d7454d23940674
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.2000306Z ##[group]Removing auth
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.2003467Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.2030954Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.2207565Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.2230726Z http.https://github.com/.extraheader
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.2235448Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.2526637Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.2696139Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3133723Z ##[group]Run actions/setup-python@v5.6.0
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3133899Z with:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3134032Z   python-version: 3.12
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3134180Z   check-latest: false
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3135697Z   token: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3135824Z   update-environment: true
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3135969Z   allow-prereleases: false
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3136112Z   freethreaded: false
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3136235Z env:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3137626Z   GH_TOKEN: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3137772Z   GH_REPO: SuperMarioYL/unified-cache-management
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3137953Z   RELEASE_TAG: draft/v0.8.2-1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3138099Z   RELEASE_TYPE: draft
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3138233Z   FORK_TEST_PYPI: true
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3138384Z   DOCKERHUB_NAMESPACE: docker.io/***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3138553Z   DOCKERHUB_USERNAME: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3138728Z   DOCKERHUB_TOKEN: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.3138855Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.4067073Z ##[group]Installed versions
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.4164278Z (node:2189) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.4164877Z (Use `node --trace-deprecation ...` to show where the warning was created)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.4165413Z Successfully set up CPython (3.12.15)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.4165710Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.4935230Z ##[group]Run python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r .github/release/requirements.txt
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.4935863Z [36;1mpython -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r .github/release/requirements.txt[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5247192Z shell: /usr/bin/bash -e {0}
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5247366Z env:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5248875Z   GH_TOKEN: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5249039Z   GH_REPO: SuperMarioYL/unified-cache-management
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5249231Z   RELEASE_TAG: draft/v0.8.2-1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5249387Z   RELEASE_TYPE: draft
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5249523Z   FORK_TEST_PYPI: true
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5249687Z   DOCKERHUB_NAMESPACE: docker.io/***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5249854Z   DOCKERHUB_USERNAME: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5250030Z   DOCKERHUB_TOKEN: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5250219Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5250515Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5250761Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5250987Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5251209Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5251438Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:16.5251819Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.1198406Z Collecting build (from -r .github/release/requirements.txt (line 4))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.1975117Z   Downloading build-1.3.0-py3-none-any.whl.metadata (5.6 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.2204076Z Collecting packaging (from -r .github/release/requirements.txt (line 5))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.2390669Z   Downloading packaging-24.2-py3-none-any.whl.metadata (3.2 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.2848740Z Collecting PyYAML (from -r .github/release/requirements.txt (line 6))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.2998349Z   Downloading PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (2.1 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.3707740Z Collecting setuptools (from -r .github/release/requirements.txt (line 7))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.3856740Z   Downloading setuptools-75.8.2-py3-none-any.whl.metadata (6.7 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.4086954Z Collecting wheel (from -r .github/release/requirements.txt (line 8))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.4241027Z   Downloading wheel-0.45.1-py3-none-any.whl.metadata (2.3 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.4430521Z Collecting twine==6.1.0 (from -r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.4588516Z   Downloading twine-6.1.0-py3-none-any.whl.metadata (3.7 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.4779726Z Collecting readme-renderer>=35.0 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.4931868Z   Downloading readme_renderer-46.0-py3-none-any.whl.metadata (3.0 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.5157523Z Collecting requests>=2.20 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.5306085Z   Downloading requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.5480892Z Collecting requests-toolbelt!=0.9.0,>=0.8.0 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.5628620Z   Downloading requests_toolbelt-1.0.0-py2.py3-none-any.whl.metadata (14 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.5961154Z Collecting urllib3>=1.26.0 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.6110550Z   Downloading urllib3-2.8.0-py3-none-any.whl.metadata (7.4 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.6363992Z Collecting keyring>=15.1 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.6513760Z   Downloading keyring-25.7.0-py3-none-any.whl.metadata (21 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.6730089Z Collecting rfc3986>=1.4.0 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.6877466Z   Downloading rfc3986-2.0.0-py2.py3-none-any.whl.metadata (6.6 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.7144386Z Collecting rich>=12.0.0 (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.7292285Z   Downloading rich-15.0.0-py3-none-any.whl.metadata (18 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.7507683Z Collecting id (from twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.7655624Z   Downloading id-1.6.1-py3-none-any.whl.metadata (5.1 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.7836651Z Collecting pyproject_hooks (from build->-r .github/release/requirements.txt (line 4))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.7984951Z   Downloading pyproject_hooks-1.2.0-py3-none-any.whl.metadata (1.3 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.8168682Z Collecting SecretStorage>=3.2 (from keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.8317274Z   Downloading secretstorage-3.5.0-py3-none-any.whl.metadata (4.0 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.8487086Z Collecting jeepney>=0.4.2 (from keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.8635020Z   Downloading jeepney-0.9.0-py3-none-any.whl.metadata (1.2 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.8811192Z Collecting jaraco.classes (from keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.8962312Z   Downloading jaraco.classes-3.4.0-py3-none-any.whl.metadata (2.6 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.9162832Z Collecting jaraco.functools (from keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.9313775Z   Downloading jaraco_functools-4.6.0-py3-none-any.whl.metadata (2.9 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.9492910Z Collecting jaraco.context (from keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.9647587Z   Downloading jaraco_context-6.1.2-py3-none-any.whl.metadata (4.2 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:18.9972733Z Collecting nh3>=0.2.14 (from readme-renderer>=35.0->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.0126119Z   Downloading nh3-0.3.7-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (2.0 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.0307368Z Collecting docutils>=0.21.2 (from readme-renderer>=35.0->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.0455102Z   Downloading docutils-0.23-py3-none-any.whl.metadata (15 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.0677494Z Collecting Pygments>=2.5.1 (from readme-renderer>=35.0->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.0830474Z   Downloading pygments-2.21.0-py3-none-any.whl.metadata (2.5 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.1719895Z Collecting charset_normalizer<4,>=2 (from requests>=2.20->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.1871778Z   Downloading charset_normalizer-3.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (46 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.2125263Z Collecting idna<4,>=2.5 (from requests>=2.20->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.2274629Z   Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.2482379Z Collecting certifi>=2023.5.7 (from requests>=2.20->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.2638177Z   Downloading certifi-2026.7.22-py3-none-any.whl.metadata (2.5 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.2843734Z Collecting markdown-it-py>=2.2.0 (from rich>=12.0.0->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.2990550Z   Downloading markdown_it_py-4.2.0-py3-none-any.whl.metadata (7.4 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.3178198Z Collecting mdurl~=0.1 (from markdown-it-py>=2.2.0->rich>=12.0.0->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.3327768Z   Downloading mdurl-0.1.2-py3-none-any.whl.metadata (1.6 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.4448805Z Collecting cryptography>=2.0 (from SecretStorage>=3.2->keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.4600779Z   Downloading cryptography-50.0.2-cp311-abi3-manylinux_2_34_x86_64.whl.metadata (4.4 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.5204693Z Collecting cffi>=2.0.0 (from cryptography>=2.0->SecretStorage>=3.2->keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.5353204Z   Downloading cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.5 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.5525606Z Collecting pycparser (from cffi>=2.0.0->cryptography>=2.0->SecretStorage>=3.2->keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.5676030Z   Downloading pycparser-3.11-py3-none-any.whl.metadata (8.2 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.5883052Z Collecting more-itertools (from jaraco.classes->keyring>=15.1->twine==6.1.0->-r .github/release/requirements.txt (line 9))
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.6030186Z   Downloading more_itertools-11.1.0-py3-none-any.whl.metadata (41 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.6233815Z Downloading twine-6.1.0-py3-none-any.whl (40 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.6404351Z Downloading build-1.3.0-py3-none-any.whl (23 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.6558049Z Downloading packaging-24.2-py3-none-any.whl (65 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.6738315Z Downloading PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (767 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.7295546Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 767.5/767.5 kB 18.6 MB/s  0:00:00
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.7453537Z Downloading setuptools-75.8.2-py3-none-any.whl (1.2 MB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.7752517Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.2/1.2 MB 36.4 MB/s  0:00:00
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.7905104Z Downloading wheel-0.45.1-py3-none-any.whl (72 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.8054158Z Downloading keyring-25.7.0-py3-none-any.whl (39 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.8217474Z Downloading jeepney-0.9.0-py3-none-any.whl (49 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.8383312Z Downloading readme_renderer-46.0-py3-none-any.whl (14 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.8543657Z Downloading docutils-0.23-py3-none-any.whl (634 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.8577323Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 634.7/634.7 kB 214.4 MB/s  0:00:00
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.8727243Z Downloading nh3-0.3.7-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (832 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.8771848Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 832.2/832.2 kB 202.9 MB/s  0:00:00
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.8921893Z Downloading pygments-2.21.0-py3-none-any.whl (1.3 MB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.8977422Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.3/1.3 MB 245.4 MB/s  0:00:00
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.9125601Z Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.9275460Z Downloading charset_normalizer-3.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (257 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.9429435Z Downloading idna-3.20-py3-none-any.whl (69 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.9580026Z Downloading urllib3-2.8.0-py3-none-any.whl (135 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.9732689Z Downloading certifi-2026.7.22-py3-none-any.whl (136 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:19.9884619Z Downloading requests_toolbelt-1.0.0-py2.py3-none-any.whl (54 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.0032975Z Downloading rfc3986-2.0.0-py2.py3-none-any.whl (31 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.0185833Z Downloading rich-15.0.0-py3-none-any.whl (310 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.0340236Z Downloading markdown_it_py-4.2.0-py3-none-any.whl (91 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.0489205Z Downloading mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.0640894Z Downloading secretstorage-3.5.0-py3-none-any.whl (15 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.0793311Z Downloading cryptography-50.0.2-cp311-abi3-manylinux_2_34_x86_64.whl (4.8 MB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.1089421Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.8/4.8 MB 160.1 MB/s  0:00:00
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.1241680Z Downloading cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (221 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.1391493Z Downloading id-1.6.1-py3-none-any.whl (14 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.1547634Z Downloading jaraco.classes-3.4.0-py3-none-any.whl (6.8 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.1694903Z Downloading jaraco_context-6.1.2-py3-none-any.whl (7.9 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.1845982Z Downloading jaraco_functools-4.6.0-py3-none-any.whl (11 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.1995139Z Downloading more_itertools-11.1.0-py3-none-any.whl (72 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.2146505Z Downloading pycparser-3.11-py3-none-any.whl (51 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.2298297Z Downloading pyproject_hooks-1.2.0-py3-none-any.whl (10 kB)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:20.4088907Z Installing collected packages: wheel, urllib3, setuptools, rfc3986, PyYAML, pyproject_hooks, Pygments, pycparser, packaging, nh3, more-itertools, mdurl, jeepney, jaraco.context, idna, docutils, charset_normalizer, certifi, requests, readme-renderer, markdown-it-py, jaraco.functools, jaraco.classes, id, cffi, build, rich, requests-toolbelt, cryptography, SecretStorage, keyring, twine
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.3624446Z 
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.3642547Z Successfully installed PyYAML-6.0.2 Pygments-2.21.0 SecretStorage-3.5.0 build-1.3.0 certifi-2026.7.22 cffi-2.1.1 charset_normalizer-3.5.2 cryptography-50.0.2 docutils-0.23 id-1.6.1 idna-3.20 jaraco.classes-3.4.0 jaraco.context-6.1.2 jaraco.functools-4.6.0 jeepney-0.9.0 keyring-25.7.0 markdown-it-py-4.2.0 mdurl-0.1.2 more-itertools-11.1.0 nh3-0.3.7 packaging-24.2 pycparser-3.11 pyproject_hooks-1.2.0 readme-renderer-46.0 requests-2.34.2 requests-toolbelt-1.0.0 rfc3986-2.0.0 rich-15.0.0 setuptools-75.8.2 twine-6.1.0 urllib3-2.8.0 wheel-0.45.1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4223417Z ##[group]Run set -euo pipefail
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4223648Z [36;1mset -euo pipefail[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4223808Z [36;1mtest "${GH_REPO}" = "${GITHUB_REPOSITORY}"[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4224021Z [36;1mresolved="$(PYTHONPATH=.github/release python -c \[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4224485Z [36;1m  'import json, sys; from ucm_release import policy; print(json.dumps(policy.resolve(release_type=sys.argv[1], fork_test_pypi=sys.argv[2] == "true", dockerhub_namespace=sys.argv[3] or None)))' \[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4224958Z [36;1m  "${RELEASE_TYPE}" "${FORK_TEST_PYPI}" "${DOCKERHUB_NAMESPACE}")"[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4225185Z [36;1mjq -e --arg scope "${PUBLICATION_SCOPE}" \[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4225380Z [36;1m  --arg repository "${GITHUB_REPOSITORY}" \[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4225579Z [36;1m  '.publication_scope == $scope and[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4225801Z [36;1m   (.repository | ascii_downcase) == ($repository | ascii_downcase)' \[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4226041Z [36;1m  <<<"${resolved}" >/dev/null[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4226248Z [36;1mmax_count="$(jq -er '.release_profile.max_count' <<<"${resolved}")"[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4226517Z [36;1mpypi_enabled="$(jq -r '.publish.pypi.enabled' <<<"${resolved}")"[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4226771Z [36;1mif [ "${max_count}" != -1 ] && [ "${pypi_enabled}" = false ]; then[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4227014Z [36;1m  # Install only when retention can delete registry resources.[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4227288Z [36;1m  bash .github/actions/setup-crane/install-crane.sh "${RUNNER_TEMP}/crane"[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4227538Z [36;1m  export PATH="${RUNNER_TEMP}/crane:${PATH}"[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4227781Z [36;1m  if [ "$(jq -r '.publish.dockerhub.enabled' <<<"${resolved}")" = true ]; then[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4228056Z [36;1m    test -n "${DOCKERHUB_USERNAME}" && test -n "${DOCKERHUB_TOKEN}"[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4228299Z [36;1m    printf '%s' "${DOCKERHUB_TOKEN}" | docker login docker.io \[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4228541Z [36;1m      --username "${DOCKERHUB_USERNAME}" --password-stdin[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4228734Z [36;1m  fi[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4228846Z [36;1mfi[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4229008Z [36;1mpython .github/release/ucm_release/cleanup.py retention \[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4229258Z [36;1m  --repository "${GH_REPO}" --current-tag "${RELEASE_TAG}" \[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4229509Z [36;1m  --release-type "${RELEASE_TYPE}" --max-count "${max_count}" \[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4229724Z [36;1m  --pypi-enabled "${pypi_enabled}"[0m
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4282258Z shell: /usr/bin/bash -e {0}
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4282397Z env:
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4283922Z   GH_TOKEN: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4284069Z   GH_REPO: SuperMarioYL/unified-cache-management
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4284381Z   RELEASE_TAG: draft/v0.8.2-1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4284530Z   RELEASE_TYPE: draft
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4284657Z   FORK_TEST_PYPI: true
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4284809Z   DOCKERHUB_NAMESPACE: docker.io/***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4284975Z   DOCKERHUB_USERNAME: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4285142Z   DOCKERHUB_TOKEN: ***
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4285304Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4285546Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4285796Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4286015Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4286236Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4286457Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4286648Z   PUBLICATION_SCOPE: fork
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:09:22.4286783Z ##[endgroup]
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.6690998Z cleanup kept: draft/v0.8.0-202610139207
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.6691289Z cleanup kept: draft/v0.8.2-1
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.6895189Z Post job cleanup.
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.7636883Z (node:2258) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.7637550Z (Use `node --trace-deprecation ...` to show where the warning was created)
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.7797654Z Post job cleanup.
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.8353130Z [command]/usr/bin/git version
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.8383266Z git version 2.55.0
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.8405954Z Temporarily overriding HOME='/home/runner/work/_temp/4a8caa9a-a362-4c40-b821-6003295ccb15' before making global git config changes
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.8406900Z Adding repository directory to the temporary git global config as a safe directory
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.8409334Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unified-cache-management/unified-cache-management
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.8438640Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.8465172Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.8688623Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.8703325Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.9086743Z Cleaning up orphan processes
+Run Release core / Cleanup · Retain the configured same-type Releases	UNKNOWN STEP	2026-10-13T13:10:07.9296909Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4.2.2, actions/setup-python@v5.6.0. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

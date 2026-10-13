@@ -1,0 +1,399 @@
+﻿2026-10-13T09:30:40.0903090Z Current runner version: '2.337.0'
+2026-10-13T09:30:40.0928787Z ##[group]Runner Image Provisioner
+2026-10-13T09:30:40.0929670Z Hosted Compute Agent
+2026-10-13T09:30:40.0930282Z Version: 20261002.596
+2026-10-13T09:30:40.0931296Z Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+2026-10-13T09:30:40.0932098Z Build Date: 2026-10-02T22:28:27Z
+2026-10-13T09:30:40.0932845Z Worker ID: {8bd7e080-70d5-4fb6-84d1-1572abc3d580}
+2026-10-13T09:30:40.0933584Z Region: northcentralus
+2026-10-13T09:30:40.0934184Z Cloud: Azure
+2026-10-13T09:30:40.0934831Z ##[endgroup]
+2026-10-13T09:30:40.0936275Z ##[group]Operating System
+2026-10-13T09:30:40.0936898Z Ubuntu
+2026-10-13T09:30:40.0937534Z 24.04.5
+2026-10-13T09:30:40.0938072Z LTS
+2026-10-13T09:30:40.0938670Z ##[endgroup]
+2026-10-13T09:30:40.0939305Z ##[group]Runner Image
+2026-10-13T09:30:40.0939898Z Image: ubuntu-24.04
+2026-10-13T09:30:40.0940774Z Version: 20261004.327.1
+2026-10-13T09:30:40.0942104Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+2026-10-13T09:30:40.0944118Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+2026-10-13T09:30:40.0945103Z ##[endgroup]
+2026-10-13T09:30:40.0946769Z ##[group]GITHUB_TOKEN Permissions
+2026-10-13T09:30:40.0949020Z Actions: read
+2026-10-13T09:30:40.0949743Z Contents: read
+2026-10-13T09:30:40.0950331Z Metadata: read
+2026-10-13T09:30:40.0951210Z ##[endgroup]
+2026-10-13T09:30:40.0953373Z Secret source: Actions
+2026-10-13T09:30:40.0954463Z Cache mode: write
+2026-10-13T09:30:40.0955414Z Prepare workflow directory
+2026-10-13T09:30:40.1392441Z Prepare all required actions
+2026-10-13T09:30:40.1459636Z Getting action download info
+2026-10-13T09:30:40.3754180Z Download action repository 'actions/checkout@v4.2.2' (SHA:11bd71901bbe5b1630ceea73d27597364c9af683)
+2026-10-13T09:30:40.5525751Z Uses: SuperMarioYL/unified-cache-management/.github/workflows/release-ucm.yml@refs/heads/develop (776110b2524bf43eb5e197dcdb96315f9c6c3d8c)
+2026-10-13T09:30:40.5530737Z ##[group] Inputs
+2026-10-13T09:30:40.5531427Z   git_tag: nightly/v0.8.0-20261013-1
+2026-10-13T09:30:40.5532103Z   release_type: nightly
+2026-10-13T09:30:40.5532799Z   version: 0.8.0.dev20261013001
+2026-10-13T09:30:40.5533494Z   chart_version: 0.8.0-nightly.20261013.1
+2026-10-13T09:30:40.5534214Z   image_version: 0.8.0.dev20261013001
+2026-10-13T09:30:40.5534894Z   release_kind: publish
+2026-10-13T09:30:40.5535903Z   is_prerelease: true
+2026-10-13T09:30:40.5536643Z   source_sha: 776110b2524bf43eb5e197dcdb96315f9c6c3d8c
+2026-10-13T09:30:40.5537423Z   publication_scope: fork
+2026-10-13T09:30:40.5538052Z ##[endgroup]
+2026-10-13T09:30:40.5538843Z Complete job name: Run common Release core / Validate Wheel Runtime · cu130 · amd64
+2026-10-13T09:30:40.6473488Z ##[group]Run actions/checkout@v4.2.2
+2026-10-13T09:30:40.6474343Z with:
+2026-10-13T09:30:40.6474839Z   ref: 776110b2524bf43eb5e197dcdb96315f9c6c3d8c
+2026-10-13T09:30:40.6475455Z   fetch-depth: 1
+2026-10-13T09:30:40.6475939Z   persist-credentials: false
+2026-10-13T09:30:40.6476573Z   repository: SuperMarioYL/unified-cache-management
+2026-10-13T09:30:40.6480672Z   token: ***
+2026-10-13T09:30:40.6481133Z   ssh-strict: true
+2026-10-13T09:30:40.6481595Z   ssh-user: git
+2026-10-13T09:30:40.6482031Z   clean: true
+2026-10-13T09:30:40.6482497Z   sparse-checkout-cone-mode: true
+2026-10-13T09:30:40.6483029Z   fetch-tags: false
+2026-10-13T09:30:40.6483488Z   show-progress: true
+2026-10-13T09:30:40.6483947Z   lfs: false
+2026-10-13T09:30:40.6484377Z   submodules: false
+2026-10-13T09:30:40.6484843Z   set-safe-directory: true
+2026-10-13T09:30:40.6485523Z ##[endgroup]
+2026-10-13T09:30:40.7491755Z Syncing repository: SuperMarioYL/unified-cache-management
+2026-10-13T09:30:40.7494629Z ##[group]Getting Git version info
+2026-10-13T09:30:40.7495573Z Working directory is '/home/runner/work/unified-cache-management/unified-cache-management'
+2026-10-13T09:30:40.7497559Z [command]/usr/bin/git version
+2026-10-13T09:30:40.7556827Z git version 2.55.0
+2026-10-13T09:30:40.7578263Z ##[endgroup]
+2026-10-13T09:30:40.7593729Z Temporarily overriding HOME='/home/runner/work/_temp/a3db5283-5bcf-4338-8fc4-038e6cbc0cfd' before making global git config changes
+2026-10-13T09:30:40.7595778Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-13T09:30:40.7598967Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unified-cache-management/unified-cache-management
+2026-10-13T09:30:40.7657382Z Deleting the contents of '/home/runner/work/unified-cache-management/unified-cache-management'
+2026-10-13T09:30:40.7668673Z ##[group]Initializing the repository
+2026-10-13T09:30:40.7677012Z [command]/usr/bin/git init /home/runner/work/unified-cache-management/unified-cache-management
+2026-10-13T09:30:40.7751024Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-13T09:30:40.7752486Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-13T09:30:40.7753449Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-13T09:30:40.7754622Z hint: call:
+2026-10-13T09:30:40.7755660Z hint:
+2026-10-13T09:30:40.7756440Z hint: 	git config --global init.defaultBranch <name>
+2026-10-13T09:30:40.7757387Z hint:
+2026-10-13T09:30:40.7758278Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-13T09:30:40.7759705Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-13T09:30:40.7761004Z hint:
+2026-10-13T09:30:40.7761596Z hint: 	git branch -m <name>
+2026-10-13T09:30:40.7762347Z hint:
+2026-10-13T09:30:40.7763295Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-13T09:30:40.7765173Z Initialized empty Git repository in /home/runner/work/unified-cache-management/unified-cache-management/.git/
+2026-10-13T09:30:40.7767481Z [command]/usr/bin/git remote add origin https://github.com/SuperMarioYL/unified-cache-management
+2026-10-13T09:30:40.7809781Z ##[endgroup]
+2026-10-13T09:30:40.7810847Z ##[group]Disabling automatic garbage collection
+2026-10-13T09:30:40.7815268Z [command]/usr/bin/git config --local gc.auto 0
+2026-10-13T09:30:40.7851903Z ##[endgroup]
+2026-10-13T09:30:40.7852713Z ##[group]Setting up auth
+2026-10-13T09:30:40.7859706Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T09:30:40.7896223Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T09:30:40.8249725Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T09:30:40.8300993Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T09:30:40.8562010Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-13T09:30:40.8606681Z ##[endgroup]
+2026-10-13T09:30:40.8607884Z ##[group]Fetching the repository
+2026-10-13T09:30:40.8617552Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin 776110b2524bf43eb5e197dcdb96315f9c6c3d8c
+2026-10-13T09:30:41.8189409Z From https://github.com/SuperMarioYL/unified-cache-management
+2026-10-13T09:30:41.8191931Z  * branch            776110b2524bf43eb5e197dcdb96315f9c6c3d8c -> FETCH_HEAD
+2026-10-13T09:30:41.8195897Z ##[endgroup]
+2026-10-13T09:30:41.8197906Z ##[group]Determining the checkout info
+2026-10-13T09:30:41.8200572Z ##[endgroup]
+2026-10-13T09:30:41.8201865Z [command]/usr/bin/git sparse-checkout disable
+2026-10-13T09:30:41.8254982Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-13T09:30:41.8290219Z ##[group]Checking out the ref
+2026-10-13T09:30:41.8294054Z [command]/usr/bin/git checkout --progress --force 776110b2524bf43eb5e197dcdb96315f9c6c3d8c
+2026-10-13T09:30:42.0343246Z Note: switching to '776110b2524bf43eb5e197dcdb96315f9c6c3d8c'.
+2026-10-13T09:30:42.0344821Z 
+2026-10-13T09:30:42.0345921Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-10-13T09:30:42.0346844Z changes and commit them, and you can discard any commits you make in this
+2026-10-13T09:30:42.0347683Z state without impacting any branches by switching back to a branch.
+2026-10-13T09:30:42.0348163Z 
+2026-10-13T09:30:42.0348528Z If you want to create a new branch to retain commits you create, you may
+2026-10-13T09:30:42.0349314Z do so (now or later) by using -c with the switch command. Example:
+2026-10-13T09:30:42.0349738Z 
+2026-10-13T09:30:42.0349984Z   git switch -c <new-branch-name>
+2026-10-13T09:30:42.0350591Z 
+2026-10-13T09:30:42.0350829Z Or undo this operation with:
+2026-10-13T09:30:42.0351160Z 
+2026-10-13T09:30:42.0351334Z   git switch -
+2026-10-13T09:30:42.0351654Z 
+2026-10-13T09:30:42.0352086Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-10-13T09:30:42.0352586Z 
+2026-10-13T09:30:42.0352988Z HEAD is now at 776110b fix(release): complete shared setup and preserve cleanup contracts
+2026-10-13T09:30:42.0357875Z ##[endgroup]
+2026-10-13T09:30:42.0409304Z [command]/usr/bin/git log -1 --format=%H
+2026-10-13T09:30:42.0441144Z 776110b2524bf43eb5e197dcdb96315f9c6c3d8c
+2026-10-13T09:30:42.0450106Z ##[group]Removing auth
+2026-10-13T09:30:42.0453842Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T09:30:42.0488615Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T09:30:42.0734856Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T09:30:42.0767056Z http.https://github.com/.extraheader
+2026-10-13T09:30:42.0774496Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-13T09:30:42.0810349Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T09:30:42.1048266Z ##[endgroup]
+2026-10-13T09:30:42.1380053Z Prepare all required actions
+2026-10-13T09:30:42.1380992Z Getting action download info
+2026-10-13T09:30:42.2321822Z Download action repository 'actions/download-artifact@v4.3.0' (SHA:d3f86a106a0bac45b974a628896c90dbdf5c8093)
+2026-10-13T09:30:42.6192243Z ##[group]Run ./.github/actions/download-artifact-retry
+2026-10-13T09:30:42.6192670Z with:
+2026-10-13T09:30:42.6192980Z   name: ucm-wheel-cu130-cp312-amd64-run-38375348617
+2026-10-13T09:30:42.6193339Z   path: input/wheel
+2026-10-13T09:30:42.6193603Z ##[endgroup]
+2026-10-13T09:30:42.6253361Z ##[start-action display=Run actions/download-artifact@v4.3.0;id=__self.dl-1]
+2026-10-13T09:30:42.6319023Z ##[group]Run actions/download-artifact@v4.3.0
+2026-10-13T09:30:42.6319414Z with:
+2026-10-13T09:30:42.6319718Z   name: ucm-wheel-cu130-cp312-amd64-run-38375348617
+2026-10-13T09:30:42.6320080Z   path: input/wheel
+2026-10-13T09:30:42.6320347Z   merge-multiple: false
+2026-10-13T09:30:42.6320911Z   repository: SuperMarioYL/unified-cache-management
+2026-10-13T09:30:42.6321281Z   run-id: 38375348617
+2026-10-13T09:30:42.6321547Z ##[endgroup]
+2026-10-13T09:30:42.7839160Z Downloading single artifact
+2026-10-13T09:30:42.7988490Z (node:2333) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-13T09:30:42.7989802Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-13T09:30:42.9415811Z Preparing to download the following artifacts:
+2026-10-13T09:30:42.9416658Z - ucm-wheel-cu130-cp312-amd64-run-38375348617 (ID: 11801481743, Size: 4478336, Expected Digest: sha256:3811abecaa5a7746125ea12262a5cff135bff9b9eb3e40dd2fe5d5b13558b7cb)
+2026-10-13T09:30:43.1125000Z Redirecting to blob download url: https://productionresultssa19.blob.core.windows.net/actions-results/e85c5855-36db-4460-9b50-6fa44a866daf/workflow-job-run-c208286e-ae1f-5f94-b2c9-118cf757f805/artifacts/092b571cdcc1dccc3e296b7ff4f38c7ff91df267aa6b065150b99dd3a217d5f5.zip
+2026-10-13T09:30:43.1126930Z Starting download of artifact to: /home/runner/work/unified-cache-management/unified-cache-management/input/wheel
+2026-10-13T09:30:43.2707889Z (node:2333) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+2026-10-13T09:30:43.5755019Z SHA256 digest of downloaded artifact is 3811abecaa5a7746125ea12262a5cff135bff9b9eb3e40dd2fe5d5b13558b7cb
+2026-10-13T09:30:43.5756000Z Artifact download completed successfully.
+2026-10-13T09:30:43.5756765Z Total of 1 artifact(s) downloaded
+2026-10-13T09:30:43.5760748Z Download artifact has finished successfully
+2026-10-13T09:30:43.5887642Z ##[end-action id=__self.dl-1;outcome=success;conclusion=success;duration_ms=963]
+2026-10-13T09:30:43.5893567Z ##[start-action display=Clear partial download before retry (1 → 2);id=__self.__run]
+2026-10-13T09:30:43.5919233Z ##[end-action id=__self.__run;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-13T09:30:43.5921851Z ##[start-action display=Run actions/download-artifact@v4.3.0;id=__self.dl-2]
+2026-10-13T09:30:43.5928329Z ##[end-action id=__self.dl-2;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-13T09:30:43.5930338Z ##[start-action display=Clear partial download before retry (2 → 3);id=__self.__run_2]
+2026-10-13T09:30:43.5936684Z ##[end-action id=__self.__run_2;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-13T09:30:43.5938589Z ##[start-action display=Run actions/download-artifact@v4.3.0;id=__self.dl-3]
+2026-10-13T09:30:43.5944897Z ##[end-action id=__self.dl-3;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-13T09:30:43.6004736Z ##[group]Run set -euo pipefail
+2026-10-13T09:30:43.6005145Z [36;1mset -euo pipefail[0m
+2026-10-13T09:30:43.6005490Z [36;1mresult=input/wheel/wheel-result.json[0m
+2026-10-13T09:30:43.6005978Z [36;1mwheel="$(find input/wheel -maxdepth 1 -type f -name '*.whl' -print -quit)"[0m
+2026-10-13T09:30:43.6006425Z [36;1mtest -n "${wheel}"[0m
+2026-10-13T09:30:43.6006803Z [36;1mtest "$(jq -r '.distribution' "${result}")" = "${BACKEND_DISTRIBUTION}"[0m
+2026-10-13T09:30:43.6007201Z [36;1mwheel="$(realpath "${wheel}")"[0m
+2026-10-13T09:30:43.6007522Z [36;1mwheel_name="$(basename "${wheel}")"[0m
+2026-10-13T09:30:43.6007948Z [36;1mexternal_libraries="$(jq -c '.external_libraries' "${result}")"[0m
+2026-10-13T09:30:43.6008363Z [36;1mdeferred_external_libraries="$(jq -c \[0m
+2026-10-13T09:30:43.6008719Z [36;1m  '.deferred_external_libraries' "${result}")"[0m
+2026-10-13T09:30:43.6009179Z [36;1mruntime_requirements="$(jq -ce '.dependencies | select(type == "array")' \[0m
+2026-10-13T09:30:43.6009668Z [36;1m  "${result}")"[0m
+2026-10-13T09:30:43.6010024Z [36;1mwheel_glibc_floor="$(jq -er '.glibc_floor | select(type == "string")' \[0m
+2026-10-13T09:30:43.6010566Z [36;1m  "${result}")"[0m
+2026-10-13T09:30:43.6010844Z [36;1mucm_version="$(jq -er '.version' "${result}")"[0m
+2026-10-13T09:30:43.6011170Z [36;1mdocker pull "${RUNTIME_IMAGE}"[0m
+2026-10-13T09:30:43.6011476Z [36;1mdocker run --rm --entrypoint bash \[0m
+2026-10-13T09:30:43.6011868Z [36;1m  -e DEFERRED_EXTERNAL_LIBRARIES="${deferred_external_libraries}" \[0m
+2026-10-13T09:30:43.6012276Z [36;1m  -e PLATFORM="${PLATFORM_ARG}" \[0m
+2026-10-13T09:30:43.6012592Z [36;1m  -e EXPECTED_UCM_VERSION="${ucm_version}" \[0m
+2026-10-13T09:30:43.6012975Z [36;1m  -e EXPECTED_BACKEND_DISTRIBUTION="${BACKEND_DISTRIBUTION}" \[0m
+2026-10-13T09:30:43.6013414Z [36;1m  -e EXPECTED_EXTERNAL_LIBRARIES="${external_libraries}" \[0m
+2026-10-13T09:30:43.6013847Z [36;1m  -e EXPECTED_RUNTIME_REQUIREMENTS="${runtime_requirements}" \[0m
+2026-10-13T09:30:43.6014270Z [36;1m  -e EXPECTED_WHEEL_GLIBC_FLOOR="${wheel_glibc_floor}" \[0m
+2026-10-13T09:30:43.6014829Z [36;1m  -e UCM_WHEEL="/tmp/${wheel_name}" \[0m
+2026-10-13T09:30:43.6015160Z [36;1m  -v "${wheel}:/tmp/${wheel_name}:ro" \[0m
+2026-10-13T09:30:43.6015634Z [36;1m  -v "${PWD}/.github/release/validate_wheel_runtime.py:/tmp/validate_wheel_runtime.py:ro" \[0m
+2026-10-13T09:30:43.6016108Z [36;1m  "${RUNTIME_IMAGE}" -c '[0m
+2026-10-13T09:30:43.6016387Z [36;1m    set -euo pipefail[0m
+2026-10-13T09:30:43.6016680Z [36;1m    ldd_output="$(ldd --version 2>&1)"[0m
+2026-10-13T09:30:43.6017296Z [36;1m    actual_glibc="$(python3 -c "import re, sys; match = re.search(r\"[0-9]+(?:\\.[0-9]+)+\", sys.stdin.read()); print(match.group(0) if match else \"\")" \[0m
+2026-10-13T09:30:43.6017866Z [36;1m      <<<"${ldd_output}")"[0m
+2026-10-13T09:30:43.6018136Z [36;1m    test -n "${actual_glibc}"[0m
+2026-10-13T09:30:43.6018479Z [36;1m    required_glibc="${EXPECTED_WHEEL_GLIBC_FLOOR#GLIBC_}"[0m
+2026-10-13T09:30:43.6019148Z [36;1m    python3 -c "import sys; parse=lambda value: tuple(map(int, value.split(\".\"))); sys.exit(0 if parse(sys.argv[1]) >= parse(sys.argv[2]) else 1)" \[0m
+2026-10-13T09:30:43.6019761Z [36;1m      "${actual_glibc}" "${required_glibc}"[0m
+2026-10-13T09:30:43.6020095Z [36;1m    python3 -m venv /tmp/ucm-wheel-venv[0m
+2026-10-13T09:30:43.6020520Z [36;1m    . /tmp/ucm-wheel-venv/bin/activate[0m
+2026-10-13T09:30:43.6020929Z [36;1m    python -m pip install --disable-pip-version-check --no-cache-dir \[0m
+2026-10-13T09:30:43.6021429Z [36;1m      --index-url https://pypi.org/simple "${UCM_WHEEL}"[0m
+2026-10-13T09:30:43.6021830Z [36;1m    python /tmp/validate_wheel_runtime.py[0m
+2026-10-13T09:30:43.6022125Z [36;1m  '[0m
+2026-10-13T09:30:43.6249827Z shell: /usr/bin/bash -e {0}
+2026-10-13T09:30:43.6250118Z env:
+2026-10-13T09:30:43.6250927Z   RUNTIME_IMAGE: docker.io/vllm/vllm-openai@sha256:770fe65b2c73ee74a5c42165cf3433de4048cc2cd9c57a937ca4e35aba5aa87b
+2026-10-13T09:30:43.6251826Z   BACKEND_DISTRIBUTION: supermarioyl-uc-manager-cuda-cu130
+2026-10-13T09:30:43.6252177Z   PLATFORM_ARG: cuda
+2026-10-13T09:30:43.6252407Z ##[endgroup]
+2026-10-13T09:30:44.0933555Z docker.io/vllm/vllm-openai@sha256:770fe65b2c73ee74a5c42165cf3433de4048cc2cd9c57a937ca4e35aba5aa87b: Pulling from vllm/vllm-openai
+2026-10-13T09:30:44.0947316Z 828c1365039a: Pulling fs layer
+2026-10-13T09:30:44.0948198Z 2cf9fba20a14: Pulling fs layer
+2026-10-13T09:30:44.0953333Z 0e0a2c237a99: Pulling fs layer
+2026-10-13T09:30:44.0954179Z 31e49ca9b3e8: Pulling fs layer
+2026-10-13T09:30:44.0954860Z 526d5438c009: Pulling fs layer
+2026-10-13T09:30:44.0955520Z 0670a797adeb: Pulling fs layer
+2026-10-13T09:30:44.0956171Z 8215752c2c23: Pulling fs layer
+2026-10-13T09:30:44.0956755Z 07c01b521357: Pulling fs layer
+2026-10-13T09:30:44.0957399Z c953bcfadcb1: Pulling fs layer
+2026-10-13T09:30:44.0958075Z 32afc9c7e65a: Pulling fs layer
+2026-10-13T09:30:44.0958703Z b75908aa5c92: Pulling fs layer
+2026-10-13T09:30:44.0959374Z d482c0394d14: Pulling fs layer
+2026-10-13T09:30:44.0960007Z 4f7fddd2cfb3: Pulling fs layer
+2026-10-13T09:30:44.0960898Z 31e49ca9b3e8: Waiting
+2026-10-13T09:30:44.0961566Z 09a932ac85ef: Pulling fs layer
+2026-10-13T09:30:44.0962219Z d18893bd9be3: Pulling fs layer
+2026-10-13T09:30:44.0962855Z 876c89bc8451: Pulling fs layer
+2026-10-13T09:30:44.0963451Z 988adad2ba2e: Pulling fs layer
+2026-10-13T09:30:44.0964053Z 8714626b14e0: Pulling fs layer
+2026-10-13T09:30:44.0964696Z 35f917896b1c: Pulling fs layer
+2026-10-13T09:30:44.0965337Z 848402535309: Pulling fs layer
+2026-10-13T09:30:44.0965963Z 1960f0652f54: Pulling fs layer
+2026-10-13T09:30:44.0966585Z 0439dd13da01: Pulling fs layer
+2026-10-13T09:30:44.0967229Z e548ece67349: Pulling fs layer
+2026-10-13T09:30:44.0967863Z 4f4fb700ef54: Pulling fs layer
+2026-10-13T09:30:44.0968532Z e2f6e16d5665: Pulling fs layer
+2026-10-13T09:30:44.0969191Z df654debe751: Pulling fs layer
+2026-10-13T09:30:44.0969797Z 35b02021097a: Pulling fs layer
+2026-10-13T09:30:44.0970633Z f82495a1cfe2: Pulling fs layer
+2026-10-13T09:30:44.0971261Z c8417f716c32: Pulling fs layer
+2026-10-13T09:30:44.0971850Z 10b1d31218dc: Pulling fs layer
+2026-10-13T09:30:44.0972822Z 34f1b8b974bf: Pulling fs layer
+2026-10-13T09:30:44.0973404Z 526d5438c009: Waiting
+2026-10-13T09:30:44.0973951Z 0670a797adeb: Waiting
+2026-10-13T09:30:44.0974505Z 8215752c2c23: Waiting
+2026-10-13T09:30:44.0975032Z 07c01b521357: Waiting
+2026-10-13T09:30:44.0975557Z c953bcfadcb1: Waiting
+2026-10-13T09:30:44.0976077Z 32afc9c7e65a: Waiting
+2026-10-13T09:30:44.0976612Z b75908aa5c92: Waiting
+2026-10-13T09:30:44.0977134Z 0439dd13da01: Waiting
+2026-10-13T09:30:44.0977661Z d482c0394d14: Waiting
+2026-10-13T09:30:44.0978213Z e548ece67349: Waiting
+2026-10-13T09:30:44.0978750Z 4f7fddd2cfb3: Waiting
+2026-10-13T09:30:44.0979285Z 4f4fb700ef54: Waiting
+2026-10-13T09:30:44.0979839Z f82495a1cfe2: Waiting
+2026-10-13T09:30:44.0980590Z 09a932ac85ef: Waiting
+2026-10-13T09:30:44.0981132Z e2f6e16d5665: Waiting
+2026-10-13T09:30:44.0981657Z c8417f716c32: Waiting
+2026-10-13T09:30:44.0982209Z d18893bd9be3: Waiting
+2026-10-13T09:30:44.0982742Z 10b1d31218dc: Waiting
+2026-10-13T09:30:44.0983277Z 876c89bc8451: Waiting
+2026-10-13T09:30:44.0983804Z 34f1b8b974bf: Waiting
+2026-10-13T09:30:44.0984363Z 988adad2ba2e: Waiting
+2026-10-13T09:30:44.0984910Z 1960f0652f54: Waiting
+2026-10-13T09:30:44.0985438Z 8714626b14e0: Waiting
+2026-10-13T09:30:44.0985951Z 35f917896b1c: Waiting
+2026-10-13T09:30:44.0986472Z df654debe751: Waiting
+2026-10-13T09:30:44.0986995Z 848402535309: Waiting
+2026-10-13T09:30:44.0987574Z 35b02021097a: Waiting
+2026-10-13T09:30:44.2018679Z 2cf9fba20a14: Verifying Checksum
+2026-10-13T09:30:44.2020180Z 2cf9fba20a14: Download complete
+2026-10-13T09:30:44.2796785Z 31e49ca9b3e8: Verifying Checksum
+2026-10-13T09:30:44.2806089Z 31e49ca9b3e8: Download complete
+2026-10-13T09:30:44.2813749Z 828c1365039a: Verifying Checksum
+2026-10-13T09:30:44.2817299Z 828c1365039a: Download complete
+2026-10-13T09:30:44.3574545Z 0670a797adeb: Verifying Checksum
+2026-10-13T09:30:44.3576714Z 0670a797adeb: Download complete
+2026-10-13T09:30:44.3664144Z 526d5438c009: Verifying Checksum
+2026-10-13T09:30:44.3664924Z 526d5438c009: Download complete
+2026-10-13T09:30:44.4321947Z 8215752c2c23: Verifying Checksum
+2026-10-13T09:30:44.4322828Z 8215752c2c23: Download complete
+2026-10-13T09:30:44.5351972Z 0e0a2c237a99: Verifying Checksum
+2026-10-13T09:30:44.5359619Z 0e0a2c237a99: Download complete
+2026-10-13T09:30:44.8529716Z 32afc9c7e65a: Verifying Checksum
+2026-10-13T09:30:44.8534379Z 32afc9c7e65a: Download complete
+2026-10-13T09:30:44.9316651Z b75908aa5c92: Verifying Checksum
+2026-10-13T09:30:44.9317566Z b75908aa5c92: Download complete
+2026-10-13T09:30:45.0119762Z d482c0394d14: Download complete
+2026-10-13T09:30:45.1015297Z 4f7fddd2cfb3: Verifying Checksum
+2026-10-13T09:30:45.1022890Z 4f7fddd2cfb3: Download complete
+2026-10-13T09:30:45.1993833Z 09a932ac85ef: Verifying Checksum
+2026-10-13T09:30:45.1994331Z 09a932ac85ef: Download complete
+2026-10-13T09:30:45.2809398Z d18893bd9be3: Verifying Checksum
+2026-10-13T09:30:45.2810028Z d18893bd9be3: Download complete
+2026-10-13T09:30:45.2874212Z 07c01b521357: Verifying Checksum
+2026-10-13T09:30:45.2875233Z 07c01b521357: Download complete
+2026-10-13T09:30:46.0345045Z 828c1365039a: Pull complete
+2026-10-13T09:30:51.7101670Z c953bcfadcb1: Verifying Checksum
+2026-10-13T09:30:51.7103422Z c953bcfadcb1: Download complete
+2026-10-13T09:30:51.7921955Z 8714626b14e0: Download complete
+2026-10-13T09:30:51.8817671Z 35f917896b1c: Verifying Checksum
+2026-10-13T09:30:51.8819246Z 35f917896b1c: Download complete
+2026-10-13T09:30:52.6040014Z 988adad2ba2e: Verifying Checksum
+2026-10-13T09:30:52.6042248Z 988adad2ba2e: Download complete
+2026-10-13T09:30:52.6765201Z 1960f0652f54: Verifying Checksum
+2026-10-13T09:30:52.6765840Z 1960f0652f54: Download complete
+2026-10-13T09:30:52.7489020Z 0439dd13da01: Verifying Checksum
+2026-10-13T09:30:52.7489824Z 0439dd13da01: Download complete
+2026-10-13T09:30:52.8610888Z 848402535309: Verifying Checksum
+2026-10-13T09:30:52.8612433Z 848402535309: Download complete
+2026-10-13T09:30:52.9347415Z 4f4fb700ef54: Verifying Checksum
+2026-10-13T09:30:52.9347941Z 4f4fb700ef54: Download complete
+2026-10-13T09:30:53.0191741Z e2f6e16d5665: Verifying Checksum
+2026-10-13T09:30:53.0192236Z e2f6e16d5665: Download complete
+2026-10-13T09:30:53.2232852Z df654debe751: Verifying Checksum
+2026-10-13T09:30:53.3051237Z df654debe751: Download complete
+2026-10-13T09:30:53.3051758Z 35b02021097a: Verifying Checksum
+2026-10-13T09:30:53.3052194Z 35b02021097a: Download complete
+2026-10-13T09:30:53.3947853Z f82495a1cfe2: Verifying Checksum
+2026-10-13T09:30:53.3949017Z f82495a1cfe2: Download complete
+2026-10-13T09:30:53.4687068Z c8417f716c32: Verifying Checksum
+2026-10-13T09:30:53.4687807Z c8417f716c32: Download complete
+2026-10-13T09:30:54.7159506Z e548ece67349: Verifying Checksum
+2026-10-13T09:30:54.7160120Z e548ece67349: Download complete
+2026-10-13T09:30:55.2629828Z 10b1d31218dc: Verifying Checksum
+2026-10-13T09:30:55.2630219Z 10b1d31218dc: Download complete
+2026-10-13T09:30:57.7692061Z 34f1b8b974bf: Verifying Checksum
+2026-10-13T09:30:57.7692557Z 34f1b8b974bf: Download complete
+2026-10-13T09:30:59.8684003Z 2cf9fba20a14: Pull complete
+2026-10-13T09:31:05.2923650Z 876c89bc8451: Verifying Checksum
+2026-10-13T09:31:05.2924017Z 876c89bc8451: Download complete
+2026-10-13T09:31:08.8680836Z 0e0a2c237a99: Pull complete
+2026-10-13T09:31:08.8763591Z 31e49ca9b3e8: Pull complete
+2026-10-13T09:31:08.8849144Z 526d5438c009: Pull complete
+2026-10-13T09:31:08.8922919Z 0670a797adeb: Pull complete
+2026-10-13T09:31:08.9005195Z 8215752c2c23: Pull complete
+2026-10-13T09:31:16.8371705Z 07c01b521357: Pull complete
+2026-10-13T09:31:32.2786958Z c953bcfadcb1: Pull complete
+2026-10-13T09:31:32.7603067Z 32afc9c7e65a: Pull complete
+2026-10-13T09:31:32.7683446Z b75908aa5c92: Pull complete
+2026-10-13T09:31:32.7844977Z d482c0394d14: Pull complete
+2026-10-13T09:31:32.7916396Z 4f7fddd2cfb3: Pull complete
+2026-10-13T09:31:32.8054455Z 09a932ac85ef: Pull complete
+2026-10-13T09:31:32.8134289Z d18893bd9be3: Pull complete
+2026-10-13T09:32:28.7297220Z 876c89bc8451: Pull complete
+2026-10-13T09:32:40.5200953Z 988adad2ba2e: Pull complete
+2026-10-13T09:32:40.5305703Z 8714626b14e0: Pull complete
+2026-10-13T09:32:40.5638893Z 35f917896b1c: Pull complete
+2026-10-13T09:32:44.1941045Z 848402535309: Pull complete
+2026-10-13T09:32:44.1945251Z 1960f0652f54: Pull complete
+2026-10-13T09:32:44.2033858Z 0439dd13da01: Pull complete
+2026-10-13T09:32:49.6782796Z e548ece67349: Pull complete
+2026-10-13T09:32:49.6887664Z 4f4fb700ef54: Pull complete
+2026-10-13T09:32:49.6981937Z e2f6e16d5665: Pull complete
+2026-10-13T09:32:49.8252814Z df654debe751: Pull complete
+2026-10-13T09:32:49.9099156Z 35b02021097a: Pull complete
+2026-10-13T09:32:49.9511921Z f82495a1cfe2: Pull complete
+2026-10-13T09:32:49.9602672Z c8417f716c32: Pull complete
+2026-10-13T09:32:57.6368175Z 10b1d31218dc: Pull complete
+2026-10-13T09:33:07.7329558Z 34f1b8b974bf: Pull complete
+2026-10-13T09:33:07.7370523Z Digest: sha256:770fe65b2c73ee74a5c42165cf3433de4048cc2cd9c57a937ca4e35aba5aa87b
+2026-10-13T09:33:07.7375250Z Status: Downloaded newer image for vllm/vllm-openai@sha256:770fe65b2c73ee74a5c42165cf3433de4048cc2cd9c57a937ca4e35aba5aa87b
+2026-10-13T09:33:07.7389954Z docker.io/vllm/vllm-openai@sha256:770fe65b2c73ee74a5c42165cf3433de4048cc2cd9c57a937ca4e35aba5aa87b
+2026-10-13T09:33:10.4673859Z Processing /tmp/supermarioyl_uc_manager_cuda_cu130-0.8.0.dev20261013001-cp312-cp312-manylinux_2_28_x86_64.whl
+2026-10-13T09:33:10.7281985Z Collecting wrapt==1.17.2 (from supermarioyl-uc-manager-cuda-cu130==0.8.0.dev20261013001)
+2026-10-13T09:33:10.7422078Z   Downloading wrapt-1.17.2-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.4 kB)
+2026-10-13T09:33:10.7465127Z Downloading wrapt-1.17.2-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl (89 kB)
+2026-10-13T09:33:10.7555766Z Installing collected packages: wrapt, supermarioyl-uc-manager-cuda-cu130
+2026-10-13T09:33:11.1422527Z Successfully installed supermarioyl-uc-manager-cuda-cu130-0.8.0.dev20261013001 wrapt-1.17.2
+2026-10-13T09:33:11.6845455Z Post job cleanup.
+2026-10-13T09:33:11.8593809Z [command]/usr/bin/git version
+2026-10-13T09:33:11.8655111Z git version 2.55.0
+2026-10-13T09:33:11.8692954Z Temporarily overriding HOME='/home/runner/work/_temp/c43b83bb-2d64-4765-b8ba-4f95b653d517' before making global git config changes
+2026-10-13T09:33:11.8694174Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-13T09:33:11.8699182Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unified-cache-management/unified-cache-management
+2026-10-13T09:33:11.8742184Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-13T09:33:11.8779078Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-13T09:33:11.9070299Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-13T09:33:11.9112572Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-13T09:33:11.9596456Z Cleaning up orphan processes
+2026-10-13T09:33:12.0044451Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4.2.2, actions/download-artifact@v4.3.0. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
