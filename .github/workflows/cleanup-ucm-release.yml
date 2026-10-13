@@ -23,7 +23,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Load production API dependencies
-        run: python -m pip install --disable-pip-version-check --only-binary=:all: -r .github/release/requirements.txt
+        run: >-
+          python -m pip install --disable-pip-version-check
+          --only-binary=:all: -r .github/release/requirements.txt
       - name: Record the independent archive source
         run: git rev-parse HEAD >.github/release/acceptance-evidence/observer-sha.txt
       - name: Archive all original rc14 assets by exact ID and digest
