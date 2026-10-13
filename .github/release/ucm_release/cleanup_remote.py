@@ -367,6 +367,7 @@ class ProductionRemote:
         return path
 
     def probe(self, resource: Resource) -> object | None:
+        """Return deletion state, or None when the exact resource is absent."""
         if resource.kind in {"chart-oci", "ghcr-index", "ghcr-member"}:
             if not isinstance(resource.identifier, tuple) or any(
                 not isinstance(tag, str) for tag in resource.identifier
@@ -376,7 +377,12 @@ class ProductionRemote:
                 resource.reference, allowed_tags=resource.identifier
             )
         if resource.kind in {"dockerhub-index", "dockerhub-member"}:
-            return self._run_crane("digest", resource.reference)
+            try:
+                return self._run_crane("digest", resource.reference)
+            except RemoteError as error:
+                if error.is_missing:
+                    return None
+                raise
         return self._github_path_state(resource)
 
     def delete(self, resource: Resource, state: object) -> None:

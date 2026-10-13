@@ -875,6 +875,48 @@ def test_crane_errors_are_structurally_classified(
     assert error.is_retryable is retryable
 
 
+@pytest.mark.parametrize(
+    ("detail", "status"), [("MANIFEST_UNKNOWN", 404), ("HTTP 403 forbidden", 403)]
+)
+def test_dockerhub_probe_and_preview_distinguish_absence_from_denied_access(
+    tmp_path, monkeypatch, detail, status
+):
+    target, remote, saved = _cleanup_cli_fixture(monkeypatch)
+    before = remote.present.copy()
+    dockerhub = target.registry[1]
+    client = cleanup.ProductionRemote(remote.repository, "token")
+
+    def crane(operation, reference):
+        assert (operation, reference) == ("digest", dockerhub.reference)
+        raise client._crane_error(detail)
+
+    monkeypatch.setattr(client, "_run_crane", crane)
+    if status == 404:
+        assert client.probe(dockerhub) is None
+    else:
+        with pytest.raises(cleanup.RemoteError) as caught:
+            client.probe(dockerhub)
+        assert caught.value.status == status
+
+    def probe(resource):
+        if resource == dockerhub:
+            return client.probe(resource)
+        return FakeRemote.probe(remote, resource)
+
+    monkeypatch.setattr(remote, "probe", probe)
+    report_path = tmp_path / "report.json"
+    result = cleanup.main(
+        ["tag", "--tag", target.tag, "--dry-run", "--report", str(report_path)]
+    )
+    report = json.loads(report_path.read_text())
+    assert result == (0 if status == 404 else 1)
+    assert report["status"] == ("dry-run" if status == 404 else "failed")
+    assert report["results"][0]["status"] == (
+        "would-delete" if status == 404 else "blocked"
+    )
+    assert remote.present == before and not remote.delete_calls and not saved
+
+
 def test_dockerhub_delete_uses_the_probed_manifest_digest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
