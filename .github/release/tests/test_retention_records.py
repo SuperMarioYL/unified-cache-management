@@ -455,7 +455,7 @@ def test_nightly_opened_record_uses_frozen_tag_commit_after_workflow_start():
 
 
 def test_record_targets_cli_checks_tag_source_before_writing_remote_assets(
-    monkeypatch, capsys
+    tmp_path, monkeypatch, capsys
 ):
     remote = FakeRemote()
     monkeypatch.setattr(cleanup, "_production_remote", lambda arguments: remote)
@@ -470,6 +470,8 @@ def test_record_targets_cli_checks_tag_source_before_writing_remote_assets(
             "100",
             "--source-sha",
             SOURCE_SHA,
+            "--output-dir",
+            str(tmp_path),
         ]
     )
     assert result == 2
@@ -571,7 +573,10 @@ def test_missing_or_expired_legacy_plan_blocks_cleanup(expired):
     assert not any(event[0] == "POST" for event in remote.events)
 
 
-def test_legacy_early_failure_is_persisted_without_losing_recorded_partial_targets():
+def test_legacy_early_failure_is_persisted_without_losing_recorded_partial_targets(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
     remote = FakeRemote()
     reference = "ghcr.io/release-org/vllm:v0.23.0-ucm-0.8.0.dev1"
     saved = _snapshot(
@@ -626,7 +631,10 @@ def test_legacy_without_plan_refuses_incomplete_or_attempted_publication_evidenc
 
 
 @pytest.mark.parametrize("recovery_case", ["no_record", "opened_record", "moved_tag"])
-def test_recovered_legacy_plan_is_persisted_before_actions_run_deletion(recovery_case):
+def test_recovered_legacy_plan_is_persisted_before_actions_run_deletion(
+    tmp_path, monkeypatch, recovery_case
+):
+    monkeypatch.chdir(tmp_path)
     saved = _snapshot(run_id=101)
     historical_sha = "b" * 40 if recovery_case == "moved_tag" else SOURCE_SHA
     stage = "planned" if recovery_case == "moved_tag" else "opened"
@@ -822,7 +830,8 @@ def test_dry_run_resolves_legacy_targets_without_uploading_recovery(command, cap
 
 
 @pytest.mark.parametrize("failure", ["upload", "readback"])
-def test_recovery_failure_blocks_resource_deletion(failure):
+def test_recovery_failure_blocks_resource_deletion(tmp_path, monkeypatch, failure):
+    monkeypatch.chdir(tmp_path)
     remote = _legacy_remote()
     if failure == "upload":
         remote.upload_error = execution.RemoteError("upload forbidden", status=403)

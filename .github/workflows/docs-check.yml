@@ -16,6 +16,12 @@ on:
       - .github/workflows/_build*.yml
       - .github/workflows/sync-builders.yml
       - .github/workflows/ucm-build-bot.yml
+      - .github/workflows/pull-request.yml
+      - .github/workflows/push-check.yml
+      - .github/workflows/lint-and-test.yml
+      - .github/workflows/_probe-runtime.yml
+      - .github/workflows/_native-wheel-gate.yml
+      - .github/actions/**
       - scripts/materialize_version.py
       - .readthedocs.yaml
       - .github/workflows/docs-check.yml
@@ -34,6 +40,12 @@ on:
       - .github/workflows/_build*.yml
       - .github/workflows/sync-builders.yml
       - .github/workflows/ucm-build-bot.yml
+      - .github/workflows/pull-request.yml
+      - .github/workflows/push-check.yml
+      - .github/workflows/lint-and-test.yml
+      - .github/workflows/_probe-runtime.yml
+      - .github/workflows/_native-wheel-gate.yml
+      - .github/actions/**
       - scripts/materialize_version.py
       - .readthedocs.yaml
       - .github/workflows/docs-check.yml

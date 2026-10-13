@@ -932,6 +932,8 @@ def test_record_cli_rejects_invalid_plan_before_remote_writes(
             "a" * 40,
             "--plan",
             str(path),
+            "--output-dir",
+            str(tmp_path),
         ]
     )
     assert status == 2

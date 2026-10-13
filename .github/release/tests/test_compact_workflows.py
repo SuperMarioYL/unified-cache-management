@@ -77,8 +77,9 @@ def test_nightly_schedule_creates_or_reuses_a_tag_then_calls_core_in_same_run() 
     assert "--version-config version.ini" in run
     assert "next_patch_version" not in run
     assert 'git rev-list -n 1 "${candidate}"' in run
-    assert ".name == $tag and .draft == true" in run
-    assert 'startswith("untagged-")' in run
+    assert "bash .github/release/find-github-release.sh" in run
+    assert '"${GH_REPO}" "${candidate}"' in run
+    assert ".draft == false and .prerelease == true" in run
     assert 'any(.name == "release-manifest.json")' in run
     assert 'gh api --method POST "/repos/${GH_REPO}/git/refs"' in run
     assert '-f "ref=refs/tags/${selected_tag}"' in run
@@ -106,7 +107,19 @@ def test_nightly_schedule_creates_or_reuses_a_tag_then_calls_core_in_same_run() 
         "${{ github.repository == 'ModelEngine-Group/unified-cache-management' "
         "&& 'official' || 'fork' }}"
     )
-    assert release["secrets"] == "inherit"
+    assert release["secrets"] == {
+        "PYPI_API_TOKEN": (
+            "${{ github.repository == 'ModelEngine-Group/unified-cache-management' "
+            "&& secrets.PYPI_API_TOKEN || '' }}"
+        ),
+        "TEST_PYPI_API_TOKEN": (
+            "${{ github.repository != 'ModelEngine-Group/unified-cache-management' "
+            "&& secrets.TEST_PYPI_API_TOKEN || '' }}"
+        ),
+        "DOCKERHUB_USERNAME": "${{ secrets.DOCKERHUB_USERNAME }}",
+        "DOCKERHUB_TOKEN": "${{ secrets.DOCKERHUB_TOKEN }}",
+        "RTD_API_TOKEN": "${{ secrets.RTD_API_TOKEN }}",
+    }
 
 
 def test_nightly_wheels_do_not_inherit_the_skipped_builder_sync() -> None:
@@ -294,6 +307,10 @@ def test_remote_writers_use_environment_and_minimum_permissions() -> None:
     assert "packages" not in jobs["publish-image-members"]["permissions"]
     assert jobs["build-images"]["permissions"]["packages"] == "write"
     assert jobs["update-release-images"]["permissions"] == {
+        "actions": "read",
+        "contents": "write",
+    }
+    assert jobs["retain-releases"]["permissions"] == {
         "actions": "write",
         "contents": "write",
         "packages": "write",

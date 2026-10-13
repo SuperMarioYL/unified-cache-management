@@ -15,7 +15,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-      - uses: cpp-linter/cpp-linter-action@main
+      # Third-party action receiving a token: pin the reviewed release commit.
+      - uses: cpp-linter/cpp-linter-action@8120e05c7fbd25fa09fa93424ec49f55f7b304ab # v2.23.1
         id: linter
         continue-on-error: true
         env:
