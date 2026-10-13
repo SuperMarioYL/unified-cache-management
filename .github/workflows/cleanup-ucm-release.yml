@@ -99,6 +99,20 @@ jobs:
           path: out/hosted/
           if-no-files-found: error
           retention-days: 90
+      - name: Prove active source is deferred before acknowledging its terminal step
+        if: ${{ inputs.scenario == 'manual' }}
+        run: |
+          set -euo pipefail
+          python fixture-helper/.github/release/tests/hosted_cleanup.py active-manual \
+            --production-root . --production-sha "${PRODUCTION_SHA}"
+      - name: Publish independently verified active acknowledgement
+        if: ${{ inputs.scenario == 'manual' }}
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: acceptance-active-run-${{ github.run_id }}
+          path: out/hosted/active-proof.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Observe terminal source and prove deployed cleanup behavior
         if: ${{ inputs.scenario != 'history-preview' }}
         run: |

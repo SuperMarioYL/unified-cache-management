@@ -693,7 +693,7 @@ def ghcr_closure(remote, arguments, ledger):
     write_json(arguments.output_dir / "proof.json", proof)
 
 
-def manual_run(remote, arguments, ledger, failure):
+def manual_run(remote, arguments, ledger, failure, *, active=False):
     workflow = "cleanup-ucm-release.yml"
     endpoint = f"/repos/{REPOSITORY}/actions/workflows/{workflow}/runs"
     recent = endpoint + "?event=workflow_dispatch&per_page=30"
@@ -727,7 +727,11 @@ def manual_run(remote, arguments, ledger, failure):
         run["conclusion"] == ("failure" if failure else "success"),
         "Unexpected manual workflow conclusion",
     )
-    name = "manual-first-failure" if failure else "manual-retry-success"
+    name = (
+        "manual-active-deferred"
+        if active
+        else "manual-first-failure" if failure else "manual-retry-success"
+    )
     write_json(arguments.output_dir / f"{name}-run.json", run)
     (arguments.output_dir / f"{name}-logs.zip").write_bytes(
         remote.request("GET", f"/repos/{REPOSITORY}/actions/runs/{run['id']}/logs")
@@ -752,11 +756,117 @@ def manual_run(remote, arguments, ledger, failure):
     reports = archive_jsons(remote, selected[0], arguments.output_dir / name)
     require(
         reports.get("report.json", {}).get("status")
-        == ("failed" if failure else "complete"),
+        == ("deferred" if active else "failed" if failure else "complete"),
         "Actual manual workflow report has the wrong outcome",
     )
     deployed_production(remote, arguments)
     return run
+
+
+def active_manual(arguments):
+    remote = remote_client()
+    ledger = json.loads((arguments.output_dir / "ledger.json").read_text())
+    production = deployed_production(remote, arguments)
+    require(
+        ledger["source_kind"] == "manual-draft",
+        "Active check permits only the dedicated manual Draft",
+    )
+    before = remote.read_release_run(ledger["source_run_id"])
+    require(
+        before and before["status"] != "completed",
+        "Source is already terminal; do not infer active protection",
+    )
+    run = manual_run(remote, arguments, ledger, False, active=True)
+    after = remote.read_release_run(ledger["source_run_id"])
+    require(
+        after and after["status"] != "completed",
+        "Source became terminal before the active check completed",
+    )
+    report = json.loads(
+        (arguments.output_dir / "manual-active-deferred/report.json").read_text()
+    )
+    require(
+        len(report["results"]) == 1
+        and report["results"][0]["tag"] == ledger["tag"]
+        and report["results"][0]["status"] == "deferred",
+        "Active report does not defer this exact fixture",
+    )
+    proof = {
+        "status": "deferred",
+        "source_run_id": ledger["source_run_id"],
+        "tag": ledger["tag"],
+        "production_sha": production["sha"],
+        "module_hashes": production["module_hashes"],
+        "manual_run": run,
+        "source_status_before": before["status"],
+        "source_status_after": after["status"],
+        "report": report,
+        "readback": readback(remote, ledger, {kind: 200 for kind in paths(ledger)}),
+        "baseline": baseline(remote, ledger["baseline"]),
+    }
+    write_json(arguments.output_dir / "active-proof.json", proof)
+
+
+def await_manual_ack(arguments):
+    remote = remote_client()
+    production = deployed_production(remote, arguments)
+    run_id = int(os.environ["GITHUB_RUN_ID"])
+    ledger = json.loads((arguments.ledger_dir / f"fixture-{run_id}.json").read_text())
+    require(
+        ledger["source_kind"] == "manual-draft",
+        "Only manual Draft source waits for this acknowledgement",
+    )
+    deadline = time.monotonic() + 900
+    endpoint = f"/repos/{REPOSITORY}/actions/workflows/cleanup-ucm-release.yml/runs?event=workflow_dispatch&per_page=30"
+    while time.monotonic() < deadline:
+        runs = remote.json_request("GET", endpoint)["workflow_runs"]
+        for observer in runs:
+            if (
+                observer["head_sha"] != ledger["source_sha"]
+                or observer.get("display_title")
+                != f"Fork cleanup closure · manual · source {run_id}"
+            ):
+                continue
+            name = f"acceptance-active-run-{observer['id']}"
+            matches = [
+                a
+                for a in remote.list_pages(
+                    f"/repos/{REPOSITORY}/actions/runs/{observer['id']}/artifacts",
+                    key="artifacts",
+                )
+                if a["name"] == name and not a["expired"]
+            ]
+            if not matches:
+                continue
+            require(len(matches) == 1, "Active acknowledgement artifact is ambiguous")
+            values = archive_jsons(
+                remote, matches[0], arguments.output_dir / "active-ack"
+            )
+            require(
+                list(values) == ["active-proof.json"],
+                "Active acknowledgement has unexpected shape",
+            )
+            proof = values["active-proof.json"]
+            require(
+                proof["status"] == "deferred"
+                and proof["source_run_id"] == run_id
+                and proof["tag"] == ledger["tag"]
+                and proof["production_sha"] == production["sha"]
+                and proof["module_hashes"] == production["module_hashes"]
+                and proof["manual_run"]["head_sha"] == production["sha"]
+                and proof["source_status_after"] != "completed"
+                and all(row["status"] == 200 for row in proof["readback"].values()),
+                "Active acknowledgement binding differs",
+            )
+            print(
+                f"ACTIVE_ACK_VALID observer_run_id={observer['id']} source_run_id={run_id}",
+                flush=True,
+            )
+            return
+        time.sleep(5)
+    raise RuntimeError(
+        "Active acknowledgement was not readable within 900 seconds; source must not infer success"
+    )
 
 
 def manual_closure(remote, arguments, ledger):
@@ -994,6 +1104,8 @@ def main():
         "capture",
         "observe",
         "history-preview",
+        "active-manual",
+        "await-manual-ack",
     ):
         command = commands.add_parser(name)
         command.add_argument("--production-root", type=Path, default=Path.cwd())
@@ -1004,7 +1116,7 @@ def main():
             default=Path(__file__).with_name("acceptance-config.json"),
         )
         command.add_argument("--output-dir", type=Path, default=Path("out/hosted"))
-        if name.startswith("prepare"):
+        if name.startswith("prepare") or name == "await-manual-ack":
             command.add_argument("--ledger-dir", type=Path, default=Path("out/ledger"))
             command.add_argument("--open-dir", type=Path, default=Path("out/open"))
             command.add_argument("--plan-dir", type=Path, default=Path("out/plan"))
@@ -1039,6 +1151,8 @@ def main():
         "capture": capture,
         "observe": observe,
         "history-preview": history_preview,
+        "active-manual": active_manual,
+        "await-manual-ack": await_manual_ack,
     }
     try:
         operations[arguments.command](arguments)

@@ -4,7 +4,7 @@ run-name: Fork GHCR disposable source · ${{ github.ref_name }}
 
 on:
   push:
-    tags: ['draft/v0.8.0-202610139001', 'draft/v0.8.0-202610139002']
+    tags: ['draft/v0.8.0-202610139001', 'draft/v0.8.0-202610139003']
 
 concurrency:
   group: ucm-release-retention-${{ github.repository_id }}-draft
@@ -18,7 +18,7 @@ jobs:
   prepare-fixture:
     if: ${{ github.repository == 'SuperMarioYL/unified-cache-management' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     environment: fork-preview
     permissions:
       contents: write
@@ -82,8 +82,18 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Capture window before the intentionally failed source conclusion
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo 'SOURCE_CAPTURE_WINDOW_OPEN: GHCR ownership ledger is durable.'
-          sleep 180
+          set -euo pipefail
+          config=fixture-helper/.github/release/tests/acceptance-config.json
+          production_sha="$(jq -er '.production_sha' "${config}")"
+          echo 'SOURCE_CAPTURE_WINDOW_OPEN: ownership ledger is durable.'
+          if [ "${GITHUB_REF_NAME}" = "$(jq -er '.manual_draft_tag' "${config}")" ]; then
+            python fixture-helper/.github/release/tests/hosted_cleanup.py await-manual-ack \
+              --production-root . --production-sha "${production_sha}"
+          else
+            sleep 180
+          fi
           echo 'Intentional fixture failure after actual GHCR publication.' >&2
           exit 1
