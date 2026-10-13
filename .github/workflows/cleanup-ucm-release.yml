@@ -10,7 +10,7 @@ on:
       stage:
         type: choice
         required: true
-        options: [quota, readback]
+        options: [quota, readback, archive-preparation]
       source_run_ids:
         type: string
         required: false
@@ -71,6 +71,13 @@ jobs:
           path: out/draft-quota/code-binding.json
           if-no-files-found: error
           retention-days: 90
+      - name: Archive exact failed harness sources before control-resource teardown
+        if: ${{ inputs.stage == 'archive-preparation' }}
+        run: |
+          set -euo pipefail
+          python fixture-helper/.github/release/tests/draft_quota.py archive-preparation \
+            --production-root . --production-sha f66366538b35faa51507452ae1ad676b10994a4d \
+            --helper-sha "${HELPER_SHA}"
       - name: Capture terminal sources and actual quota selection without mutation
         if: ${{ inputs.stage == 'quota' }}
         run: |

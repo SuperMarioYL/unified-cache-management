@@ -29,6 +29,24 @@ def require(condition, reason):
         raise RuntimeError(reason)
 
 
+def load_acceptance(production_root):
+    sys.path.insert(0, str(production_root / ".github/release"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import hosted_cleanup as acceptance
+
+    # The reused helper initializes CONFIG only in its own CLI entrypoint.
+    # Importers must load its frozen configuration before calling its API.
+    acceptance.CONFIG = json.loads(
+        Path(__file__).with_name("acceptance-config.json").read_text()
+    )
+    require(
+        acceptance.CONFIG["production_sha"] == CONFIG["production_sha"]
+        and len(acceptance.CONFIG["protected_baseline"]) == 8,
+        "Reused helper production binding or frozen baseline differs",
+    )
+    return acceptance
+
+
 def write(name, value):
     path = OUTPUT / name
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -338,6 +356,90 @@ def archived_before(remote, run_id, artifact_name):
     }
 
 
+def archive_preparation(arguments, remote, acceptance, production):
+    evidence = []
+    prefix = f"/repos/{remote.repository}"
+    for identifier, expected in CONFIG["failed_preparations"].items():
+        run_id = int(identifier)
+        run = remote.read_release_run(run_id)
+        require(
+            run
+            and run["id"] == run_id
+            and run["head_branch"] == expected["tag"]
+            and run["head_sha"] == expected["source_sha"]
+            and run["path"].split("@", 1)[0] == ".github/workflows/release-tag.yml"
+            and run["event"] == "push"
+            and run["status"] == "completed"
+            and run["conclusion"] == "failure"
+            and run["actor"]["login"] == "SuperMarioYL",
+            "Preparation failure source binding differs",
+        )
+        release = request_state(
+            remote, f"{prefix}/releases/tags/{quote(expected['tag'], safe='/')}"
+        )
+        tag = request_state(
+            remote, f"{prefix}/git/ref/tags/{quote(expected['tag'], safe='/')}"
+        )
+        artifacts = remote.list_pages(
+            f"{prefix}/actions/runs/{run_id}/artifacts", key="artifacts"
+        )
+        require(
+            release["status"] == 404 and not artifacts,
+            "Source has publication resources or recovery artifacts",
+        )
+        require(
+            tag["status"] == 200
+            and tag["document"]["object"]
+            == {
+                "type": "commit",
+                "sha": expected["source_sha"],
+                "url": f"https://api.github.com/repos/{remote.repository}/git/commits/{expected['source_sha']}",
+            },
+            "Preparation Tag moved",
+        )
+        raw = remote.request("GET", f"{prefix}/actions/runs/{run_id}/logs")
+        directory = OUTPUT / "preparation-failures" / str(run_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "source-logs.zip").write_bytes(raw)
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            require(archive.testzip() is None, "Preparation logs failed CRC validation")
+            matches = [
+                name
+                for name in archive.namelist()
+                if b"KeyError: 'production_sha'" in archive.read(name)
+            ]
+        require(
+            matches, "Logs do not identify the observed harness initialization failure"
+        )
+        write(f"preparation-failures/{run_id}/source.json", run)
+        write(
+            f"preparation-failures/{run_id}/jobs.json",
+            remote.json_request("GET", f"{prefix}/actions/runs/{run_id}/jobs"),
+        )
+        evidence.append(
+            {
+                "source_run_id": run_id,
+                **expected,
+                "release": release,
+                "tag": tag,
+                "artifact_count": 0,
+                "logs_sha256": hashlib.sha256(raw).hexdigest(),
+                "logs_crc_valid": True,
+                "fault_log_entries": matches,
+            }
+        )
+    write(
+        "preparation-failures.json",
+        {
+            "status": "complete",
+            "production": production,
+            "cases": evidence,
+            "protected": protected(remote, acceptance),
+            "evidence_boundary": "Harness initialization failed before publication resources; only exact own control Tag/Run teardown is authorized. This is not P2 release-cleanup acceptance.",
+        },
+    )
+
+
 def apply(arguments, remote, acceptance, production):
     from ucm_release import cleanup
 
@@ -502,7 +604,15 @@ def readback(arguments, remote, acceptance, production):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "operation", choices=("prepare", "binding", "capture", "apply", "readback")
+        "operation",
+        choices=(
+            "prepare",
+            "binding",
+            "capture",
+            "apply",
+            "readback",
+            "archive-preparation",
+        ),
     )
     parser.add_argument("--production-root", type=Path, default=Path.cwd())
     parser.add_argument("--production-sha", required=True)
@@ -514,8 +624,7 @@ def main():
     arguments.open_dir = Path("out/open")
     arguments.plan_dir = Path("out/plan")
     arguments.ledger_dir = Path("out/ledger")
-    sys.path.insert(0, str(arguments.production_root / ".github/release"))
-    import hosted_cleanup as acceptance
+    acceptance = load_acceptance(arguments.production_root)
 
     require(
         arguments.production_sha == CONFIG["production_sha"],
@@ -552,9 +661,13 @@ def main():
         protected(remote, acceptance)
         print("DRAFT_RETENTION_LOCK_BOUND")
         return
-    {"prepare": prepare, "capture": capture, "apply": apply, "readback": readback}[
-        arguments.operation
-    ](arguments, remote, acceptance, production)
+    {
+        "prepare": prepare,
+        "capture": capture,
+        "apply": apply,
+        "readback": readback,
+        "archive-preparation": archive_preparation,
+    }[arguments.operation](arguments, remote, acceptance, production)
 
 
 if __name__ == "__main__":

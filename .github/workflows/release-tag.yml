@@ -4,13 +4,13 @@ run-name: Fork Draft quota source · ${{ github.ref_name }}
 on:
   push:
     tags:
-      - draft/v0.8.0-202610139101
-      - draft/v0.8.0-202610139102
-      - draft/v0.8.0-202610139103
-      - draft/v0.8.0-202610139104
-      - draft/v0.8.0-202610139105
-      - draft/v0.8.0-202610139106
-      - draft/v0.8.0-202610139107
+      - draft/v0.8.0-202610139201
+      - draft/v0.8.0-202610139202
+      - draft/v0.8.0-202610139203
+      - draft/v0.8.0-202610139204
+      - draft/v0.8.0-202610139205
+      - draft/v0.8.0-202610139206
+      - draft/v0.8.0-202610139207
 
 permissions:
   contents: read
@@ -71,7 +71,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Stop the victim before a Release is ever allocated
-        if: ${{ github.ref_name == 'draft/v0.8.0-202610139101' }}
+        if: ${{ github.ref_name == 'draft/v0.8.0-202610139201' }}
         run: |
           echo 'Intentional protocol failure after real recovery artifacts, before Release allocation.' >&2
           exit 1
