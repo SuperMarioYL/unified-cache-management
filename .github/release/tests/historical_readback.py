@@ -41,7 +41,7 @@ def main():
     output = Path("out/hosted")
     output.mkdir(parents=True, exist_ok=True)
     if args.mode == "auth":
-        state = {"before": auth_state()}
+        state = {"initial": auth_state()}
         user, token = os.environ.get("DOCKERHUB_USERNAME"), os.environ.get(
             "DOCKERHUB_TOKEN"
         )
@@ -49,6 +49,14 @@ def main():
             raise RuntimeError(
                 "Historical registry verification requires the configured credential pair"
             )
+        docker_result = subprocess.run(
+            ["docker", "login", "docker.io", "--username", user, "--password-stdin"],
+            input=token.encode(),
+            capture_output=True,
+            check=False,
+        )
+        state["docker_login_succeeded"] = docker_result.returncode == 0
+        state["after_docker_login"] = auth_state()
         result = subprocess.run(
             [
                 "crane",
@@ -63,13 +71,13 @@ def main():
             capture_output=True,
             check=False,
         )
-        state["login_succeeded"] = result.returncode == 0
-        state["after"] = auth_state()
+        state["crane_login_succeeded"] = result.returncode == 0
+        state["after_crane_login"] = auth_state()
         (output / "registry-auth.json").write_text(json.dumps(state, indent=2) + "\n")
         print(json.dumps(state))
         if (
-            not state["login_succeeded"]
-            or not state["after"]["crane_credentials_readable"]
+            not state["crane_login_succeeded"]
+            or not state["after_crane_login"]["crane_credentials_readable"]
         ):
             raise RuntimeError(
                 "Crane cannot resolve the configured Docker Hub credentials"
