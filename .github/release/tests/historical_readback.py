@@ -1,0 +1,152 @@
+"""Read exact historical identities using a Fork job token; never delete resources."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from urllib.parse import quote
+
+
+def auth_state():
+    config_dir = Path(os.environ.get("DOCKER_CONFIG", str(Path.home() / ".docker")))
+    config_path = config_dir / "config.json"
+    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    result = subprocess.run(
+        ["crane", "auth", "get", "docker.io"], capture_output=True, check=False
+    )
+    return {
+        "config_present": config_path.exists(),
+        "docker_io_key_present": "docker.io" in config.get("auths", {}),
+        "canonical_hub_key_present": "https://index.docker.io/v1/"
+        in config.get("auths", {}),
+        "credential_helper_present": bool(
+            config.get("credsStore") or config.get("credHelpers")
+        ),
+        "crane_credentials_readable": result.returncode == 0,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", choices=("auth", "readback"))
+    parser.add_argument("--production-root", type=Path, default=Path.cwd())
+    parser.add_argument("--production-sha")
+    parser.add_argument("--tag")
+    args = parser.parse_args()
+    output = Path("out/hosted")
+    output.mkdir(parents=True, exist_ok=True)
+    if args.mode == "auth":
+        state = {"before": auth_state()}
+        user, token = os.environ.get("DOCKERHUB_USERNAME"), os.environ.get(
+            "DOCKERHUB_TOKEN"
+        )
+        if not user or not token:
+            raise RuntimeError(
+                "Historical registry verification requires the configured credential pair"
+            )
+        result = subprocess.run(
+            [
+                "crane",
+                "auth",
+                "login",
+                "docker.io",
+                "--username",
+                user,
+                "--password-stdin",
+            ],
+            input=token.encode(),
+            capture_output=True,
+            check=False,
+        )
+        state["login_succeeded"] = result.returncode == 0
+        state["after"] = auth_state()
+        (output / "registry-auth.json").write_text(json.dumps(state, indent=2) + "\n")
+        print(json.dumps(state))
+        if (
+            not state["login_succeeded"]
+            or not state["after"]["crane_credentials_readable"]
+        ):
+            raise RuntimeError(
+                "Crane cannot resolve the configured Docker Hub credentials"
+            )
+        return
+    sys.path.insert(0, str(args.production_root.resolve() / ".github/release"))
+    import hosted_cleanup as acceptance
+    from ucm_release.cleanup_remote import RemoteError
+
+    acceptance.CONFIG = json.loads(
+        Path(__file__).with_name("acceptance-config.json").read_text()
+    )
+    targets = json.loads(
+        Path(__file__).with_name("historical_targets.json").read_text()
+    )
+    if args.tag not in targets:
+        raise RuntimeError("Tag is outside the exact historical readback allowlist")
+    remote = acceptance.remote_client()
+    production = acceptance.deployed_production(
+        remote,
+        SimpleNamespace(
+            production_root=args.production_root.resolve(),
+            production_sha=args.production_sha,
+        ),
+    )
+    baseline = acceptance.baseline(remote)
+    target = targets[args.tag]
+    prefix = "/repos/" + acceptance.REPOSITORY
+    paths = [
+        ("release", f'{prefix}/releases/{target["release_id"]}'),
+        ("tag", f'{prefix}/git/ref/tags/{quote(args.tag, safe="/")}'),
+        ("source_run", f'{prefix}/actions/runs/{target["source_run_id"]}'),
+    ]
+    paths += [
+        ("asset", f"{prefix}/releases/assets/{identifier}")
+        for identifier in target["asset_ids"]
+    ]
+    paths += [("registry_version", path) for path in target["registry_version_paths"]]
+    proof = {
+        "tag": args.tag,
+        "production": production,
+        "resources": [],
+        "status": "incomplete",
+    }
+    for kind, path in paths:
+        try:
+            value = remote.json_request("GET", path)
+            entry = {
+                "kind": kind,
+                "path": path,
+                "status": 200,
+                "id": value.get("id") if isinstance(value, dict) else None,
+            }
+        except RemoteError as error:
+            entry = {
+                "kind": kind,
+                "path": path,
+                "status": 404 if error.is_missing else error.status,
+                "error": None if error.is_missing else str(error),
+            }
+        proof["resources"].append(entry)
+        (output / "historical-readback.json").write_text(
+            json.dumps(proof, indent=2) + "\n"
+        )
+    proof["baseline"] = acceptance.baseline(remote, baseline)
+    proof["status"] = (
+        "complete"
+        if all(item["status"] == 404 for item in proof["resources"])
+        else "incomplete"
+    )
+    (output / "historical-readback.json").write_text(json.dumps(proof, indent=2) + "\n")
+    print(args.tag, proof["status"], len(proof["resources"]), "exact readbacks")
+    if proof["status"] != "complete":
+        raise RuntimeError(
+            "Historical objects are still present or absence could not be proved"
+        )
+
+
+if __name__ == "__main__":
+    main()

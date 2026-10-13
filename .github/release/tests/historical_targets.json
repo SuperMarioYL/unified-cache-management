@@ -1,0 +1,44 @@
+{
+  "v0.7.0rc10": {
+    "release_id": 387548975,
+    "source_run_id": 34691047256,
+    "asset_ids": [],
+    "registry_version_paths": []
+  },
+  "v0.7.0rc11": {
+    "release_id": 387556353,
+    "source_run_id": 34692329616,
+    "asset_ids": [],
+    "registry_version_paths": []
+  },
+  "v0.7.0rc12": {
+    "release_id": 387563734,
+    "source_run_id": 34693636766,
+    "asset_ids": [],
+    "registry_version_paths": []
+  },
+  "v0.7.0rc14": {
+    "release_id": 387579666,
+    "source_run_id": 34696454025,
+    "asset_ids": [
+      559338513,
+      559338485,
+      559338484,
+      559338482,
+      559338483,
+      559338498,
+      559338488,
+      559338502,
+      559338500,
+      559338506,
+      559338503,
+      559338512,
+      559338508,
+      559338515,
+      559338514
+    ],
+    "registry_version_paths": [
+      "/users/SuperMarioYL/packages/container/charts%2Funified-cache-chart/versions/1240791935"
+    ]
+  }
+}

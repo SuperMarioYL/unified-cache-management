@@ -26,7 +26,7 @@ on:
       scenario:
         type: choice
         required: true
-        options: [ghcr, manual, retention, kept, history-preview]
+        options: [ghcr, manual, retention, kept, history-preview, history-readback]
 
 permissions:
   contents: read
@@ -72,11 +72,7 @@ jobs:
         if: ${{ inputs.scenario == 'history-preview' }}
         run: |
           set -euo pipefail
-          if [ -n "${DOCKERHUB_USERNAME}${DOCKERHUB_TOKEN}" ]; then
-            test -n "${DOCKERHUB_USERNAME}" && test -n "${DOCKERHUB_TOKEN}"
-            printf '%s' "${DOCKERHUB_TOKEN}" | docker login docker.io \
-              --username "${DOCKERHUB_USERNAME}" --password-stdin
-          fi
+          python fixture-helper/.github/release/tests/historical_readback.py auth
       - name: Preview only the four reviewed historical Tags using production CLI
         if: ${{ inputs.scenario == 'history-preview' }}
         run: |
@@ -84,15 +80,22 @@ jobs:
           python fixture-helper/.github/release/tests/hosted_cleanup.py history-preview \
             --production-root . --production-sha "${PRODUCTION_SHA}" \
             --tag "${PREVIEW_TAG}"
+      - name: Independently read exact deleted historical identities
+        if: ${{ inputs.scenario == 'history-readback' }}
+        run: |
+          set -euo pipefail
+          python fixture-helper/.github/release/tests/historical_readback.py readback \
+            --production-root . --production-sha "${PRODUCTION_SHA}" \
+            --tag "${PREVIEW_TAG}"
       - name: Capture durable source ledger in this independent closure run
-        if: ${{ inputs.scenario != 'history-preview' }}
+        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' }}
         run: |
           set -euo pipefail
           python fixture-helper/.github/release/tests/hosted_cleanup.py capture \
             --production-root . --production-sha "${PRODUCTION_SHA}" \
             --source-run-id "${SOURCE_RUN_ID}"
       - name: Publish capture acknowledgement before source cancellation or completion
-        if: ${{ inputs.scenario != 'history-preview' }}
+        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' }}
         uses: actions/upload-artifact@v4.6.2
         with:
           name: acceptance-capture-run-${{ github.run_id }}
@@ -114,7 +117,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Observe terminal source and prove deployed cleanup behavior
-        if: ${{ inputs.scenario != 'history-preview' }}
+        if: ${{ inputs.scenario != 'history-preview' && inputs.scenario != 'history-readback' }}
         run: |
           set -euo pipefail
           python fixture-helper/.github/release/tests/hosted_cleanup.py observe \
