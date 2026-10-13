@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import subprocess
@@ -19,7 +20,12 @@ def auth_state():
     result = subprocess.run(
         ["crane", "auth", "get", "docker.io"], capture_output=True, check=False
     )
+    credentials = json.loads(result.stdout) if result.returncode == 0 else {}
     return {
+        "configured_username_matches": credentials.get("Username")
+        == os.environ.get("DOCKERHUB_USERNAME"),
+        "configured_secret_matches": credentials.get("Secret")
+        == os.environ.get("DOCKERHUB_TOKEN"),
         "config_present": config_path.exists(),
         "docker_io_key_present": "docker.io" in config.get("auths", {}),
         "canonical_hub_key_present": "https://index.docker.io/v1/"
@@ -73,6 +79,38 @@ def main():
         )
         state["crane_login_succeeded"] = result.returncode == 0
         state["after_crane_login"] = auth_state()
+        (output / "registry-auth.json").write_text(json.dumps(state, indent=2) + "\n")
+        exchange = subprocess.run(
+            ["crane", "auth", "token", "docker.io/lei6393/vllm-openai"],
+            capture_output=True,
+            check=False,
+        )
+        jwt_state = {
+            "exchange_succeeded": exchange.returncode == 0,
+            "parse_succeeded": False,
+            "principal_present": False,
+            "pull_scope_present": False,
+        }
+        if exchange.returncode == 0:
+            try:
+                response = json.loads(exchange.stdout)
+                token_value = response.get("token") or response.get("access_token")
+                segment = token_value.split(".")[1]
+                payload = json.loads(
+                    base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
+                )
+                jwt_state.update(
+                    parse_succeeded=True,
+                    principal_present=bool(payload.get("sub")),
+                    pull_scope_present=any(
+                        entry.get("name") == "lei6393/vllm-openai"
+                        and "pull" in entry.get("actions", [])
+                        for entry in payload.get("access", [])
+                    ),
+                )
+            except (ValueError, KeyError, IndexError, AttributeError, TypeError):
+                pass
+        state["registry_bearer"] = jwt_state
         (output / "registry-auth.json").write_text(json.dumps(state, indent=2) + "\n")
         print(json.dumps(state))
         if (
