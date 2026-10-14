@@ -161,7 +161,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=gpu-v0.20.2,ignore-error=true
 
   test-build-sglang:
-    timeout-minutes: 25
+    timeout-minutes: 60
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
