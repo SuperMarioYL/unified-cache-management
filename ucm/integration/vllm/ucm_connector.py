@@ -82,6 +82,25 @@ from ucm.sparse.state import has_ucm_sparse
 logger = init_logger(__name__)
 
 
+def _get_sparse_c8_flags(vllm_config: "VllmConfig") -> tuple[bool, bool]:
+    """Resolve cache quantization independently of weight quantization.
+
+    Newer Ascend engines derive C8 from the cache dtypes. Keep accepting the
+    additional-config switches used by older engines as well.
+    """
+    additional_config = getattr(vllm_config, "additional_config", None) or {}
+    cache_config = getattr(vllm_config, "cache_config", None)
+    attention_config = getattr(vllm_config, "attention_config", None)
+    sfa_c8 = getattr(cache_config, "cache_dtype", None) in ("int8", "fp8") or bool(
+        additional_config.get("enable_sparse_sfa_c8", False)
+    )
+    li_c8 = getattr(attention_config, "indexer_kv_dtype", None) in (
+        "int8",
+        "fp8",
+    ) or bool(additional_config.get("enable_sparse_li_c8", False))
+    return sfa_c8, li_c8
+
+
 def build_kv_hash_meta(vllm_config: "VllmConfig", rank_id: int) -> str:
     """Build the KV namespace with DCP and layout compatibility isolation."""
     speculative_config = getattr(vllm_config, "speculative_config", None)
@@ -90,9 +109,7 @@ def build_kv_hash_meta(vllm_config: "VllmConfig", rank_id: int) -> str:
         spec_method = getattr(speculative_config, "method", "") or ""
         spec_tokens = getattr(speculative_config, "num_speculative_tokens", 0)
         spec_info = f":{spec_method}:{spec_tokens}"
-    additional_config = getattr(vllm_config, "additional_config", None) or {}
-    sparse_sfa_c8 = bool(additional_config.get("enable_sparse_sfa_c8", False))
-    sparse_li_c8 = bool(additional_config.get("enable_sparse_li_c8", False))
+    sparse_sfa_c8, sparse_li_c8 = _get_sparse_c8_flags(vllm_config)
     sparse_c8_info = f":sfa_c8={int(sparse_sfa_c8)}:li_c8={int(sparse_li_c8)}"
     model_name = vllm_config.model_config.model.rstrip("/").split("/")[-1]
     dcp_size = getattr(vllm_config.parallel_config, "decode_context_parallel_size", 1)
@@ -1094,9 +1111,7 @@ class SharedIndexerKVCacheLayout(KVCacheLayout):
         entries before assembling the fixed UCM slot order.
         """
 
-        additional_config = getattr(self.vllm_config, "additional_config", None) or {}
-        sfa_c8 = bool(additional_config.get("enable_sparse_sfa_c8", False))
-        li_c8 = bool(additional_config.get("enable_sparse_li_c8", False))
+        sfa_c8, li_c8 = _get_sparse_c8_flags(self.vllm_config)
         base_tensor_count = 1 if sfa_c8 else 2
         max_extra_count = 2 if li_c8 else 1
 
@@ -2887,10 +2902,11 @@ class UCMLayerWiseConnector(UCMDirectConnector):
         if submitted:
             self._layerwise_load_start_by_layer[layer_id] = load_start
 
-    def start_load_kv(self, forward_context: "ForwardContext", **kwargs) -> None:
+    def bind_connector_metadata(self, connector_metadata: KVConnectorMetadata) -> None:
+        super().bind_connector_metadata(connector_metadata)
+        # vLLM may defer start_load_kv until after forward on steps without
+        # synchronous loads. Reset batch state before any attention hooks run.
         self._dumped_layer_ids.clear()
-        first_layer_load_start = time.perf_counter()
-        metadata = self._get_connector_metadata()
         self.load_tasks.clear()
         self.request_data.clear()
         self._failure_req_ids.clear()
@@ -2899,7 +2915,11 @@ class UCMLayerWiseConnector(UCMDirectConnector):
         self._layerwise_layer_load_duration_sum_ms = 0.0
         self._layerwise_load_bytes = 0
         self._layerwise_save_bytes = 0
+        self.dump_total_ptrs = None
 
+    def start_load_kv(self, forward_context: "ForwardContext", **kwargs) -> None:
+        first_layer_load_start = time.perf_counter()
+        metadata = self._get_connector_metadata()
         for request_id, request in metadata.request_meta.items():
             if len(request.load_block_ids[0]) == 0:
                 continue
@@ -2938,6 +2958,9 @@ class UCMLayerWiseConnector(UCMDirectConnector):
         # Pop before wait so MTP / rollback paths that revisit the same layer_name
         # do not call store.wait() again on already-completed handles.
         layer_tasks = self.load_tasks.pop(current_layer_id, {})
+        if not layer_tasks:
+            # A repeated hook must not resubmit and replace next-layer tasks.
+            return
         for request_id, task in layer_tasks.items():
             try:
                 self._rank_consistency.wait_load(task)
@@ -3555,6 +3578,16 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
             and use_layerwise
             and self.launch_config.get("hybrid_linear_attention_layerwise", True)
         )
+        if use_hybrid_linear_attention_layerwise:
+            layerwise_block_reason = UCMHybridLinearAttentionLayerWiseConnector.layerwise_engine_config_error(
+                vllm_config
+            )
+            if layerwise_block_reason:
+                logger.warning(
+                    "Layerwise disabled, using direct mode: %s",
+                    layerwise_block_reason,
+                )
+                use_hybrid_linear_attention_layerwise = False
 
         if is_fawa:
             self.connector = UCMFAWAConnector(vllm_config, role, kv_cache_config)

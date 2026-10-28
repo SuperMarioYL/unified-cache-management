@@ -25,12 +25,15 @@ Bandwidth checks write and read the selected path. Use a dedicated test director
 
 | Check | Current default | Meaning |
 | --- | --- | --- |
-| Engine and `uc-manager` versions | INFO, display only | Record the installed environment |
-| Accelerator driver | Missing driver fails; CUDA compute capability at least 8.0; Ascend HDK above 25.2.0, otherwise warning | Read from device query commands |
+| Engine and `uc-manager` versions | INFO, display only | Read package metadata from the toolkit Python, then fall back to `pip`/`pip3` on `PATH` for split-environment deployments |
+| Accelerator driver | Missing driver fails; CUDA compute capability at least 8.0; Ascend HDK above 25.2.0, otherwise warning | CUDA uses `nvidia-smi`; Ascend uses `npu-smi -v` |
+| Ascend CANN version | INFO, display only | Read `ascend_toolkit_install.info` under `$ASCEND_TOOLKIT_HOME` (default `/usr/local/Ascend/ascend-toolkit/latest`) and the current architecture; surface `package_name`, `version` and `innerversion`; a missing file is informational |
 | Kernel | At least the 5.10 series | Compare major/minor versions |
 | `/dev/shm` | Warn below 512 GiB | A precheck threshold; actual UCM capacity depends on configuration and model |
 | AIO resources | INFO, display only | Read kernel limits and current usage |
 | Storage bandwidth | Warn when the best aggregate configuration is below 8 GB/s | Adjustable threshold, affected by caches and workload |
+
+Ascend release/build suffixes such as `25.6.rc1.b999` are preserved for display and compared by their leading numeric release train.
 
 INFO does not change the exit code. Warnings are allowed by default; `--strict` treats them as failures. Codes are `0` for pass, `1` for failure or strict warnings, and `2` for CLI usage errors. Passing precheck still requires engine startup and [external-cache verification](../../user-guide/observability/verify-cache.md).
 
@@ -49,7 +52,6 @@ Example override file:
   "bandwidth": {
     "shard_sizes": ["180k", "1m"],
     "worker_counts": [1, 16],
-    "engines": ["psync", "aio"],
     "block_number": 64,
     "shard_number": 1,
     "dump_epochs": 32,
@@ -80,7 +82,7 @@ ucm-toolkit run precheck --config /path/to/precheck.json
 
 ## Bandwidth interpretation
 
-Defaults sweep 180 KiB and 8 MiB shards, 1/8/16 workers, and psync/aio. Each combination runs dump, read and read-heavy mixed phases. The mixed ratio is one write to four reads, with eight epochs per phase.
+Defaults sweep 180 KiB and 8 MiB shards, 1/8/16 workers, and the psync engine only. Each combination runs dump, read and read-heavy mixed phases. The mixed ratio is one write to four reads, with eight epochs per phase.
 
 The tool reports sample means, variation and aggregates. Selection prefers mixed bandwidth and falls back to the dump/read mean when mixed data is absent. Non-Direct I/O reads may be served by the OS page cache; interpret results as throughput of that tested path. State I/O mode and cache state when measuring storage media.
 

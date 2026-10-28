@@ -2,7 +2,7 @@
 
 ## 1. Metrics Exported by Default
 
-The tables below use the default `ucm:` prefix. The default configuration contains 78 Counters, 14 Gauges, and 64 Histograms.
+The tables below use the default `ucm:` prefix. The default configuration contains 148 Counters, 37 Gauges, and 129 Histograms.
 
 See [UCM Health Metrics](health_metrics.md) for Store health metrics and recommended aggregation.
 
@@ -208,6 +208,90 @@ No YuanRong-specific Histograms are exported by default.
 | `ucm:mooncake_d2h_duration_ms`                 | Mooncake D2H stream drain time required for backend archival          |
 | `ucm:mooncake_dump_backend_submit_duration_ms` | Time to submit a backend Dump after the D2H archival copy             |
 | `ucm:mooncake_dump_backend_wait_duration_ms`   | Time waiting for backend archival to complete                         |
+
+### 1.6 ASU / KV metrics
+
+ASU forwards these 37 KV metrics (23 Counters and 14 Histograms) into the UCM collector. Names below use the default `ucm:` prefix. Submission counts describe KV API calls and entries, not unique inference requests or successful asynchronous completions.
+
+The generator's `--check` validates KV table names, type sections, duplicates, omissions, and counts in the English, Chinese, and legacy references. Descriptions and units remain manually maintained; `--sync-ucm` does not rewrite these tables.
+
+**Units:** all `kv_*_duration_seconds` observations and bucket boundaries are in seconds. Existing `*_duration_ms` metrics, `save_duration` and `save_completion_wait_duration` use milliseconds. Multiply a KV duration mean or quantile by `1000` when displaying milliseconds; do not combine seconds and milliseconds without conversion.
+
+The two `kv_transport_node_task_*` histograms retain `node_id` in standalone mode. The UCM adapter aggregates their observations across nodes and does not expose that node label; other exporter labels still apply.
+
+#### Installation switches
+
+ASU backend installation is controlled only by the store-level `ucm_connectors[].ucm_connector_config.enable_metrics` switch (default `true`). Direct, HMA, HLA, and HLA LayerWise connectors pass the store configuration through without rewriting this switch. The top-level `enable_metrics`, effective metrics catalog, and consumer settings retain their existing UCM initialization and export behavior; they do not prevent ASU backend installation. Custom catalogs must contain the KV definitions to collect these metrics.
+
+Installing the backend does not initialize the UCM collector or start an exporter. When the collector is not initialized, UCM ignores forwarded updates. If another component has already initialized the process-wide collector and export path, these samples may still be collected and exported. The store installation switch does not provide per-store filtering.
+
+To opt out of installation for an ASU store, add `enable_metrics: false` beside `store_pipeline: "ASU"` in its existing `ucm_connector_config`. This setting controls installation, not per-store filtering or shutdown: the backend is process-wide, and setting it to `false` does not uninstall a backend already installed by another store. Direct C++ callers only have the store installation switch and must arrange UCM metric registration and draining themselves.
+
+Metrics installation is best-effort: failure emits a rate-limited UCM ERROR log and Store initialization continues without installing UCM metrics. An existing backend is left unchanged. Installation failures are not cached permanently; a later Store `Setup()` can retry. After all metric writers have stopped and `kv::metrics::Shutdown()` has completed, a later setup can reinstall the retained UCM adapter. Concurrent shutdown and writes, or switching backend types with live cached bindings, remain unsupported. Incompatible cached bindings and failed updates are skipped with rate-limited ERROR logs. Installation and update exceptions are caught by the adapter; logging uses the standard UCM logger without a separate failure fallback.
+
+The adapter uses the existing UCM `UpdateStats()` API. Samples are silently skipped when the collector is not initialized or the metric is unregistered. Later initialization and registration restore sampling through the same cached metric; previously skipped samples are not replayed. Use `--ucm-config` to check the completeness of a custom catalog.
+
+#### Counters
+
+| Metric | Unit | Description |
+| --- | --- | --- |
+| `ucm:kv_client_query_requests_total` | count | Total KV client query submissions |
+| `ucm:kv_client_query_entries_total` | keys / entries | Total keys submitted to KV client query |
+| `ucm:kv_client_query_errors_total` | count | Total failed KV client query submissions |
+| `ucm:kv_client_load_requests_total` | count | Total KV client load submissions |
+| `ucm:kv_client_load_entries_total` | keys / entries | Total entries submitted to KV client load |
+| `ucm:kv_client_load_errors_total` | count | Total failed KV client load submissions |
+| `ucm:kv_client_store_requests_total` | count | Total KV client store submissions |
+| `ucm:kv_client_store_entries_total` | keys / entries | Total entries submitted to KV client store |
+| `ucm:kv_client_store_errors_total` | count | Total failed KV client store submissions |
+| `ucm:kv_client_batch_load_requests_total` | count | Total KV client batch-load submissions |
+| `ucm:kv_client_batch_load_entries_total` | keys / entries | Total entries submitted to KV client batch-load |
+| `ucm:kv_client_batch_load_errors_total` | count | Total failed KV client batch-load submissions |
+| `ucm:kv_client_batch_store_requests_total` | count | Total KV client batch-store submissions |
+| `ucm:kv_client_batch_store_entries_total` | keys / entries | Total entries submitted to KV client batch-store |
+| `ucm:kv_client_batch_store_errors_total` | count | Total failed KV client batch-store submissions |
+| `ucm:kv_client_delete_requests_total` | count | Total KV client delete submissions |
+| `ucm:kv_client_delete_entries_total` | keys / entries | Total keys submitted to KV client delete |
+| `ucm:kv_client_delete_errors_total` | count | Total failed KV client delete submissions |
+| `ucm:kv_client_wait_requests_total` | count | Total KV client wait calls |
+| `ucm:kv_client_wait_errors_total` | count | Total failed KV client wait calls |
+| `ucm:kv_transport_task_completion_timeouts_total` | count | Total KV transport task completion timeouts |
+| `ucm:kv_transport_task_io_timeouts_total` | count | Total KV transport sub-batch IO timeouts |
+| `ucm:kv_transport_task_connection_errors_total` | count | Total KV transport connection errors |
+
+#### Histograms
+
+| Metric | Unit | Description |
+| --- | --- | --- |
+| `ucm:kv_client_task_enqueue_duration_seconds` | seconds | KV client API-to-enqueue duration |
+| `ucm:kv_client_task_queue_duration_seconds` | seconds | KV client task queue duration |
+| `ucm:kv_client_task_process_duration_seconds` | seconds | KV client task processing duration |
+| `ucm:kv_client_task_send_duration_seconds` | seconds | KV client duration until all Send calls return |
+| `ucm:kv_client_task_e2e_duration_seconds` | seconds | KV client task end-to-end duration |
+| `ucm:kv_transport_task_pre_send_duration_seconds` | seconds | KV transport duration before Send |
+| `ucm:kv_transport_task_queue_duration_seconds` | seconds | KV transport task queue duration |
+| `ucm:kv_transport_task_process_duration_seconds` | seconds | KV transport task processing duration |
+| `ucm:kv_transport_task_send_duration_seconds` | seconds | KV transport duration until Send returns |
+| `ucm:kv_transport_task_send_call_duration_seconds` | seconds | KV transport provider Send call duration |
+| `ucm:kv_transport_task_completion_duration_seconds` | seconds | KV transport completion duration after Send |
+| `ucm:kv_transport_node_task_send_duration_seconds` | seconds | KV transport node task send duration; standalone labels by node_id, UCM aggregates across nodes |
+| `ucm:kv_transport_node_task_completion_duration_seconds` | seconds | KV transport node task completion duration; standalone labels by node_id, UCM aggregates across nodes |
+| `ucm:kv_transport_task_e2e_duration_seconds` | seconds | KV transport task end-to-end duration from submit to completion |
+
+#### Updating KV definitions
+
+Edit `kv_semantics/metrics/config/kv_metrics.yaml`, then run from the repository root:
+
+```bash
+python kv_semantics/metrics/tools/generate_kv_metrics.py --sync-ucm
+python kv_semantics/metrics/tools/generate_kv_metrics.py --check
+```
+
+Commit the source, generated C++ descriptor header, and generated KV blocks in `examples/metrics/metrics_configs.yaml` and `ucm/default_metrics_config.py` together. `--check` detects stale outputs without writing files.
+
+When adding, removing, or changing the type of a KV metric, also update its table row and count summary in both language versions of `metrics-reference.md` and this file. `--check` rejects missing, duplicate, obsolete, or incorrectly grouped KV rows and stale count summaries. The default catalog totals above are checked against all metric lists in `ucm/default_metrics_config.py`, including non-KV metrics. Descriptions and units still require manual review; `--sync-ucm` does not overwrite documentation.
+
+For custom deployment catalogs, synchronize the KV definitions and run `python kv_semantics/metrics/tools/generate_kv_metrics.py --ucm-config /etc/ucm/metrics_configs.yaml` separately (requires PyYAML). Pass the metrics catalog, not the serving configuration. Every KV definition must appear exactly once with matching type, documentation text and buckets; extra custom metrics are allowed. `--ucm-config` cannot be combined with `--check` or `--sync-ucm`. Use unquoted decimal bucket values such as `0.00001`, because YAML 1.1 may parse `1e-5` as a string.
 
 ## 2. Raw Metrics Usage
 

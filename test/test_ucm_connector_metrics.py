@@ -1,14 +1,18 @@
 import ast
+import copy
 import importlib
 import json
 import math
 import re
 import sys
 import threading
+from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import get_type_hints
+from unittest.mock import Mock
 
 import pytest
 
@@ -143,8 +147,14 @@ class KVConnectorBase_V1:
         self._role = role
         self._kv_cache_config = kv_cache_config
 
+    def bind_connector_metadata(self, metadata):
+        self._connector_metadata = metadata
+
     def clear_connector_metadata(self):
-        pass
+        self._connector_metadata = None
+
+    def _get_connector_metadata(self):
+        return self._connector_metadata
 
     def get_kv_connector_stats(self):
         return None
@@ -302,7 +312,8 @@ def _install_stubs():
     _install_package("ucm", REPO_ROOT / "ucm")
     _install_package("ucm.integration", REPO_ROOT / "ucm" / "integration")
     _install_package("ucm.integration.vllm", REPO_ROOT / "ucm" / "integration" / "vllm")
-    _install_module("torch", Tensor=type("Tensor", (), {}))
+    # Python 3.12 evaluates torch.dtype annotations while importing HMA/HLA.
+    _install_module("torch", Tensor=type("Tensor", (), {}), dtype=type("dtype", (), {}))
     _install_module(
         "prometheus_client",
         Counter=FakeCounter,
@@ -350,6 +361,7 @@ def _install_stubs():
         KVCacheConfig=type("KVCacheConfig", (), {}),
         KVCacheSpec=type("KVCacheSpec", (), {}),
         MambaSpec=type("MambaSpec", (), {}),
+        MLAAttentionSpec=type("MLAAttentionSpec", (), {}),
         SlidingWindowSpec=type("SlidingWindowSpec", (), {}),
         UniformTypeKVCacheSpecs=type("UniformTypeKVCacheSpecs", (), {}),
     )
@@ -358,8 +370,14 @@ def _install_stubs():
         KVConnectorOutput=type("KVConnectorOutput", (), {}),
     )
     _install_module(
+        "vllm.v1.request",
+        RequestStatus=SimpleNamespace(PREEMPTED="preempted"),
+    )
+    _install_module(
         "ucm.integration.vllm.device",
         create_device=lambda *args, **kwargs: None,
+        get_current_device_id=lambda: 0,
+        get_ucm_worker_torch_device=lambda local_rank: f"cuda:{local_rank}",
     )
     _install_module("ucm.logger", init_logger=lambda name: _Logger())
     _install_module(
@@ -1241,8 +1259,11 @@ def test_ucm_connector_metrics_registration_is_owned_by_outer_connector():
     assert stats.data["counters_by_rank"]["0"]["load_bytes_total"] == 1.0
 
 
-def test_ucm_connector_prefers_lite_when_lite_and_fawa_are_both_enabled(monkeypatch):
+def test_ucm_connector_uses_fawa_lite_when_lite_and_fawa_are_both_enabled(monkeypatch):
     class FakeInnerConnector(KVConnectorBase_V1):
+        pass
+
+    class FakeFawaLiteConnector(KVConnectorBase_V1):
         pass
 
     class FakeFawaConnector(KVConnectorBase_V1):
@@ -1255,16 +1276,19 @@ def test_ucm_connector_prefers_lite_when_lite_and_fawa_are_both_enabled(monkeypa
     monkeypatch.setitem(
         sys.modules,
         "ucm.integration.vllm.hma_connector",
-        SimpleNamespace(UCMFAWAConnector=FakeFawaConnector),
+        SimpleNamespace(
+            UCMFAWAConnector=FakeFawaConnector,
+            UCMFAWALiteConnector=FakeFawaLiteConnector,
+        ),
     )
 
     connector = UCMConnector(
         _vllm_config(launch_config={"use_lite": True}),
         KVConnectorRole.SCHEDULER,
-        kv_cache_config=object(),
+        kv_cache_config=SimpleNamespace(kv_cache_groups=[]),
     )
 
-    assert type(connector.connector) is FakeInnerConnector
+    assert type(connector.connector) is FakeFawaLiteConnector
 
 
 def test_ucm_connector_drains_dispatcher_vllm_connector_snapshot():
@@ -2432,6 +2456,145 @@ def test_layerwise_wait_for_save_records_completion_start():
     assert "pending_dump_task.wait_for_save_start_ms = wait_for_save_start_ms" in source
 
 
+@pytest.fixture(params=[0, 30], ids=["pp-first", "pp-later"])
+def layerwise_connector(request):
+    _reset_fakes()
+    connector = object.__new__(UCMLayerWiseConnector)
+    connector.first_layer_id = request.param
+    connector.layer_ids = [request.param, request.param + 1]
+    connector.layer_name_to_id = {
+        f"layer.{layer_id}": layer_id for layer_id in connector.layer_ids
+    }
+    connector.load_tasks = defaultdict(dict)
+    connector.request_data = []
+    connector._failure_req_ids = set()
+    connector._dumped_layer_ids = set()
+    connector._layerwise_load_start_by_layer = {}
+    connector._layerwise_layer_load_duration_sum_ms = 0.0
+    connector._layerwise_load_bytes = 0
+    connector._layerwise_save_bytes = 0
+    connector.need_load = False
+    connector.tp_rank = 0
+    connector.tp_size = 8
+    connector.is_mla = True
+    connector.store = object()
+    connector.kv_cache_layout = SimpleNamespace(
+        shard_size=64, extract_block_addrs=lambda *args, **kwargs: [[101], [102]]
+    )
+    connector._rank_consistency = SimpleNamespace(
+        submit_load=Mock(side_effect=lambda *args: object()), wait_load=Mock()
+    )
+    connector._connector_worker_meta = SimpleNamespace(mark_failed=Mock())
+    connector._record_load_error = Mock()
+    connector._pending_dump_tasks = []
+    connector._poll_pending_dump_tasks = Mock()
+    connector._async_dump_req_ids = set()
+    return connector
+
+
+@pytest.mark.parametrize("fail_load", [False, True])
+def test_layerwise_decode_hooks_do_not_reuse_previous_batch_loads(
+    layerwise_connector, fail_load
+):
+    connector = layerwise_connector
+    connector.bind_connector_metadata(
+        SimpleNamespace(
+            request_meta={
+                "prefix": RequestDispatchMeta(
+                    load_block_ids=([b"a"], [1]), dump_block_ids=([], [])
+                )
+            }
+        )
+    )
+    if fail_load:
+        connector._rank_consistency.wait_load.side_effect = RuntimeError("load failed")
+    connector.start_load_kv(None)
+    for layer_name in connector.layer_name_to_id:
+        connector.wait_for_layer_load(layer_name)
+    connector.wait_for_save()
+    connector.clear_connector_metadata()
+    submit_count = connector._rank_consistency.submit_load.call_count
+    wait_count = connector._rank_consistency.wait_load.call_count
+
+    # has_sync_kv_loads=False: bind -> forward hooks -> start_load_kv.
+    connector.bind_connector_metadata(
+        SimpleNamespace(
+            request_meta={
+                "decode": RequestDispatchMeta(
+                    load_block_ids=([], []), dump_block_ids=([], [])
+                )
+            }
+        )
+    )
+    for layer_name in connector.layer_name_to_id:
+        connector.wait_for_layer_load(layer_name)
+    connector.start_load_kv(None)
+
+    assert connector._rank_consistency.submit_load.call_count == submit_count
+    assert connector._rank_consistency.wait_load.call_count == wait_count
+    assert not connector.load_tasks
+    assert not connector.need_load
+
+
+def test_layerwise_repeated_hook_does_not_replace_next_layer_task(layerwise_connector):
+    connector = layerwise_connector
+    connector.bind_connector_metadata(
+        SimpleNamespace(
+            request_meta={
+                "prefix": RequestDispatchMeta(
+                    load_block_ids=([b"a"], [1]), dump_block_ids=([], [])
+                )
+            }
+        )
+    )
+    connector.start_load_kv(None)
+    first, second = connector.layer_name_to_id
+    connector.wait_for_layer_load(first)
+    connector.wait_for_layer_load(first)
+    connector.wait_for_layer_load(second)
+    assert connector._rank_consistency.submit_load.call_count == 2
+    assert connector._rank_consistency.wait_load.call_count == 2
+    assert not connector.load_tasks
+
+
+def test_layerwise_deferred_start_preserves_saves_and_resets_each_batch(
+    layerwise_connector,
+):
+    connector = layerwise_connector
+
+    def submit_dump(*args):
+        connector._layerwise_save_bytes += 64
+        return True
+
+    connector._submit_layerwise_dump_task = Mock(side_effect=submit_dump)
+    for request_id in ("first", "second"):
+        connector.bind_connector_metadata(
+            SimpleNamespace(
+                request_meta={
+                    request_id: RequestDispatchMeta(
+                        load_block_ids=([], []), dump_block_ids=([b"a"], [1])
+                    )
+                }
+            )
+        )
+        # Saves happen during forward, before the deferred load start.
+        for layer_name in connector.layer_name_to_id:
+            connector.save_kv_layer(layer_name, None, None)
+            connector.save_kv_layer(layer_name, None, None)
+        connector.start_load_kv(None)
+        # A deferred draft forward may revisit layers after start_load_kv.
+        for layer_name in connector.layer_name_to_id:
+            connector.save_kv_layer(layer_name, None, None)
+        connector.wait_for_save()
+        connector.clear_connector_metadata()
+
+    assert connector._submit_layerwise_dump_task.call_count == 4
+    assert fake_ucmmetrics.updated == [
+        {"save_bytes_total": 128},
+        {"save_bytes_total": 128},
+    ]
+
+
 def test_layerwise_records_per_layer_load_duration_and_batch_sum():
     _reset_fakes()
     connector = object.__new__(UCMLayerWiseConnector)
@@ -2517,7 +2680,9 @@ def test_hybrid_layerwise_records_save_bytes_once():
 
     connector = object.__new__(UCMHybridLinearAttentionLayerWiseConnector)
     connector.is_save = True
-    connector._dump_transfer_data = ([], [], {"req-1"}, {})
+    connector._dump_transfer_data = ([], [], {}, {"req-1"})
+    connector._connector_metadata = None
+    connector.commit_row_id = 0
     connector.row_ids = []
     connector.dump_tasks = {}
     connector._layerwise_save_bytes = 896
@@ -2529,6 +2694,223 @@ def test_hybrid_layerwise_records_save_bytes_once():
     assert fake_ucmmetrics.updated == [{"save_bytes_total": 896}]
     assert connector._layerwise_save_bytes == 0
     assert connector.is_save is False
+
+
+def _create_metrics_test_store(monkeypatch, kind, launch_config, store_config):
+    from ucm.integration.vllm.hla_connector import (
+        UCMHybridLinearAttentionConnector,
+        UCMHybridLinearAttentionLayerWiseConnector,
+    )
+    from ucm.integration.vllm.hma_connector import UCMFAWAConnector
+
+    connector_class = {
+        "direct": UCMDirectConnector,
+        "hma": UCMFAWAConnector,
+        "hla": UCMHybridLinearAttentionConnector,
+        "hla_layerwise": UCMHybridLinearAttentionLayerWiseConnector,
+    }[kind]
+    connector = object.__new__(connector_class)
+    connector.launch_config = launch_config
+    original_launch = copy.deepcopy(launch_config)
+    connector.connector_configs = [
+        {"ucm_connector_name": "test-store", "ucm_connector_config": store_config}
+    ]
+    original = copy.deepcopy(connector.connector_configs)
+    connector.is_mla = False
+    connector.unique_id = "metrics-switch-test"
+    connector._role = KVConnectorRole.SCHEDULER
+    # A non-owner scheduler does not need a GPU layout or shared-memory setup.
+    connector._vllm_config = SimpleNamespace(
+        parallel_config=SimpleNamespace(data_parallel_rank=1)
+    )
+    calls = []
+
+    def create_connector(name, config, module_path):
+        calls.append((name, config, module_path))
+        return config
+
+    monkeypatch.setattr(
+        ucm_connector_module.UcmConnectorFactoryV1,
+        "create_connector",
+        create_connector,
+        raising=False,
+    )
+    if kind != "hma":
+        config = connector._create_store(None)
+    else:
+        connector.file_size = {"FA": 4096}
+        config = connector._create_store("FA", "fa", None)
+    assert calls == [("test-store", config, None)]
+    assert connector.connector_configs == original
+    assert connector.launch_config == original_launch
+    return config
+
+
+@pytest.mark.parametrize("kind", ["direct", "hma", "hla", "hla_layerwise"])
+@pytest.mark.parametrize("pipeline", ["ASU", "Cache|Empty"])
+@pytest.mark.parametrize("launch_enabled", [None, False, True])
+@pytest.mark.parametrize("store_enabled", [None, False, True])
+def test_store_metrics_switch_is_passed_through(
+    monkeypatch, kind, pipeline, launch_enabled, store_enabled
+):
+    launch_config = {} if launch_enabled is None else {"enable_metrics": launch_enabled}
+    store_config = {"store_pipeline": pipeline}
+    if store_enabled is not None:
+        store_config["enable_metrics"] = store_enabled
+    config = _create_metrics_test_store(monkeypatch, kind, launch_config, store_config)
+    if store_enabled is None:
+        assert "enable_metrics" not in config
+    else:
+        assert config["enable_metrics"] is store_enabled
+
+
+@pytest.mark.parametrize("kind", ["direct", "hma", "hla", "hla_layerwise"])
+@pytest.mark.parametrize("pipeline", ["ASU", "Cache|Empty"])
+@pytest.mark.parametrize("store_enabled", [False, True])
+@pytest.mark.parametrize(
+    "source, consumers, expected_setup",
+    [
+        pytest.param("default", None, True, id="builtin-defaults"),
+        pytest.param("inline", None, True, id="consumers-omitted"),
+        pytest.param("inline", {}, False, id="empty-consumers"),
+        pytest.param(
+            "inline",
+            {"multiproc": False, "vllm_connector": False},
+            False,
+            id="both-off",
+        ),
+        pytest.param(
+            "inline",
+            {"multiproc": True, "vllm_connector": False},
+            True,
+            id="multiproc-only",
+        ),
+        pytest.param(
+            "inline", {"multiproc": False, "vllm_connector": True}, True, id="vllm-only"
+        ),
+        pytest.param(
+            "inline", {"multiproc": True, "vllm_connector": True}, True, id="both-on"
+        ),
+        pytest.param(
+            "inline", {"multiproc": False}, False, id="omitted-consumer-is-off"
+        ),
+        pytest.param(
+            "inline",
+            {"multiproc": "false", "vllm_connector": "false"},
+            False,
+            id="string-false",
+        ),
+        pytest.param(
+            "inline",
+            {"multiproc": "true", "vllm_connector": "false"},
+            True,
+            id="string-true",
+        ),
+        pytest.param("empty-inline", None, False, id="empty-inline-config"),
+        pytest.param("missing-file", None, False, id="missing-file"),
+        pytest.param("invalid-file", None, False, id="invalid-yaml"),
+        pytest.param("empty-file", None, False, id="empty-file"),
+        pytest.param(
+            "file",
+            {"multiproc": False, "vllm_connector": False},
+            False,
+            id="file-both-off",
+        ),
+        pytest.param(
+            "file",
+            {"multiproc": True, "vllm_connector": False},
+            True,
+            id="file-multiproc-only",
+        ),
+    ],
+)
+def test_store_metrics_switch_is_independent_of_outer_setup(
+    monkeypatch,
+    tmp_path,
+    kind,
+    pipeline,
+    store_enabled,
+    source,
+    consumers,
+    expected_setup,
+):
+    _reset_fakes()
+    launch_config = {"enable_metrics": True}
+    effective_config = _metrics_config()
+    if consumers is None:
+        effective_config.pop("consumers")
+    else:
+        effective_config["consumers"] = consumers
+    if source == "inline":
+        launch_config["metrics_config"] = effective_config
+    elif source == "empty-inline":
+        launch_config["metrics_config"] = {}
+    elif source != "default":
+        path = tmp_path / "metrics.yaml"
+        launch_config["metrics_config_path"] = str(path)
+        if source != "missing-file":
+            content = {"empty-file": "", "invalid-file": "counter: ["}.get(
+                source, json.dumps(effective_config)
+            )
+            path.write_text(content, encoding="utf-8")
+
+    setup_configs = []
+
+    def record_setup(config):
+        setup_configs.append(copy.deepcopy(config))
+        return setup_ucm_metrics(config)
+
+    monkeypatch.setattr(ucm_connector_module, "setup_ucm_metrics", record_setup)
+    monkeypatch.setattr(
+        ucm_connector_module, "get_metrics_dispatcher", lambda config: object()
+    )
+    monkeypatch.setattr(
+        ucm_connector_module, "PrometheusStatsLogger", lambda *args: object()
+    )
+    outer = object.__new__(UCMConnector)
+    outer.launch_config = launch_config
+    outer.engine_id = "metrics-gate-test"
+    vllm_config = _vllm_config(launch_config=launch_config)
+    vllm_config.model_config = SimpleNamespace(served_model_name="test-model")
+    outer._setup_ucm_metrics(vllm_config, KVConnectorRole.SCHEDULER)
+
+    assert len(setup_configs) == int(expected_setup)
+    assert fake_ucmmetrics.setup_calls == int(expected_setup)
+    assert (outer._metrics_dispatcher is not None) is expected_setup
+    config = _create_metrics_test_store(
+        monkeypatch,
+        kind,
+        launch_config,
+        {"store_pipeline": pipeline, "enable_metrics": store_enabled},
+    )
+    assert config["enable_metrics"] is store_enabled
+    # Store creation leaves the switch untouched; the outer connector owns setup.
+    assert len(setup_configs) == int(expected_setup)
+    assert fake_ucmmetrics.setup_calls == int(expected_setup)
+
+
+@pytest.mark.parametrize("kind", ["direct", "hma", "hla", "hla_layerwise"])
+def test_disabled_consumers_preserve_store_metrics_switch(monkeypatch, kind):
+    config = _create_metrics_test_store(
+        monkeypatch,
+        kind,
+        {
+            "metrics_config": {
+                "consumers": {"multiproc": False, "vllm_connector": False}
+            }
+        },
+        {"store_pipeline": "Cache|Empty", "enable_metrics": True},
+    )
+    assert config["enable_metrics"] is True
+
+
+def test_sparse_utils_annotations_resolve_with_torch_stub():
+    from ucm.sparse.utils import align_to_256bytes, get_type_size
+
+    # Also evaluate lazy annotations on Python 3.14, so local runs catch missing
+    # stub attributes that fail at import time on the CI's Python 3.12.
+    for function in (get_type_size, align_to_256bytes):
+        assert get_type_hints(function)["return"] is int
 
 
 def test_fawa_records_only_successful_load_task_bytes():
@@ -2579,6 +2961,7 @@ def test_fawa_records_submitted_save_bytes():
     connector._get_connector_metadata = lambda: metadata
     connector.fa_store = object()
     connector.wa_store = object()
+    connector.window_group_ids = [1]
     connector._poll_completed_dump_tasks = lambda: None
     connector.tp_size = 1
     connector.tp_rank = 0

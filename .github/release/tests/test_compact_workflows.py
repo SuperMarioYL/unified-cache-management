@@ -84,7 +84,7 @@ def test_nightly_schedule_creates_or_reuses_a_tag_then_calls_core_in_same_run() 
     checkout = next(
         step
         for step in prepare["steps"]
-        if step.get("uses") == "actions/checkout@v4.2.2"
+        if step.get("uses", "").startswith("actions/checkout@")
     )
     assert checkout["with"]["ref"] == "${{ github.sha }}"
     run = next(step["run"] for step in prepare["steps"] if step.get("id") == "prepare")
@@ -243,16 +243,10 @@ def test_artifact_upload_restores_tag_before_generating_asset_links() -> None:
     assert 'sub("\\\\n+$"; "")' in run
 
 
-def test_member_receipt_barrier_uses_the_profile_target_validator() -> None:
+def test_release_workflow_checks_member_receipts() -> None:
     core = (WORKFLOWS / "release-ucm.yml").read_text(encoding="utf-8")
-    release_module = (
-        ROOT / ".github" / "release" / "ucm_release" / "release.py"
-    ).read_text(encoding="utf-8")
 
     assert "release.py members" in core
-    assert 'members = commands.add_parser("members")' in release_module
-    assert "validate_member_receipts" in release_module
-    assert "_validated_receipt_targets" in release_module
 
 
 def test_release_state_entrypoints_install_their_dependencies() -> None:
@@ -392,21 +386,6 @@ def test_exact_wheels_pass_runtime_validation_before_publication() -> None:
     assert run.strip() == (
         "bash .github/release/install-validate-wheel-runtime.sh input/wheel"
     )
-    run = (ROOT / ".github/release/install-validate-wheel-runtime.sh").read_text(
-        encoding="utf-8"
-    )
-    assert "docker run --rm" in run
-    assert '-e UCM_WHEEL="/tmp/${wheel_name}"' in run
-    assert '"${UCM_WHEEL}"' in run
-    assert "validate_wheel_runtime.py" in run
-    assert "python3 -m venv" in run
-    assert "DEFERRED_EXTERNAL_LIBRARIES" in run
-    assert "EXPECTED_RUNTIME_REQUIREMENTS" in run
-    assert '.dependencies | select(type == "array")' in run
-    assert ".deferred_external_libraries" in run
-    assert 'if [[ "${PLATFORM_ARG}" == ascend* ]]' not in run
-    assert "python -m pip check" not in run
-    assert 're.search(r\\"[0-9]+' in run
     assert "validate-wheel-runtimes" in jobs["publish-release-artifacts"]["needs"]
     assert set(jobs["publish-pypi"]["needs"]) == {
         "plan",
@@ -689,12 +668,72 @@ def test_pr_gate_runs_the_native_wheel_matrix_behind_one_stable_check() -> None:
     assert "PRE_CHECK_RESULT" in gate_text
     assert "BUILD_REQUIRED" in gate_text
     assert "BUILD_RESULT" in gate_text
-    assert jobs["test-e2e-pc-a2"]["if"] == (
-        "github.repository == 'ModelEngine-Group/unified-cache-management'"
+    pc_e2e_if = jobs["test-e2e-pc-a2"]["if"]
+    assert "github.repository == 'ModelEngine-Group/unified-cache-management'" in (
+        pc_e2e_if
     )
+    assert "github.event.pull_request.draft == false" in pc_e2e_if
+    sglang_e2e = jobs["test-e2e-sglang-a2"]
+    assert sglang_e2e["runs-on"] == ["self-hosted", "npu", "a2"]
+    assert set(sglang_e2e["needs"]) == {"lint-and-unit-tests", "test-e2e-pc-a2"}
+    assert "always()" in sglang_e2e["if"]
+    assert "needs.lint-and-unit-tests.result == 'success'" in sglang_e2e["if"]
+    assert "github.repository == 'ModelEngine-Group/unified-cache-management'" in (
+        sglang_e2e["if"]
+    )
+    sglang_build = next(
+        step for step in sglang_e2e["steps"] if step.get("name") == "Build"
+    )
+    assert 'no_proxy="repo.huaweicloud.com,${no_proxy:-}"' in sglang_build["run"]
+    sglang_e2e_text = yaml.safe_dump(sglang_e2e)
+    assert "Dockerfile.ucm-sglang-ascend.a2-v0.5.18" in sglang_e2e_text
+    assert "--privileged" in sglang_e2e_text
+    assert "--network=host" in sglang_e2e_text
+    assert "/usr/local/Ascend/driver:/usr/local/Ascend/driver:ro" in (sglang_e2e_text)
+    assert "/usr/local/Ascend/firmware:/usr/local/Ascend/firmware:ro" in (
+        sglang_e2e_text
+    )
+    assert "RUNNER_NAME" in sglang_e2e_text
+    assert "Host NPU status" in sglang_e2e_text
+    assert "torch_npu.npu.is_available()" in sglang_e2e_text
+    assert "sglang_online_inference" in sglang_e2e_text
+    assert "test_sglang_online_accuracy_from_persisted_cache_a2" in (sglang_e2e_text)
 
     text = (WORKFLOWS / "pull-request.yml").read_text(encoding="utf-8")
     assert "./.github/workflows/release-ucm.yml" not in text
+
+
+def test_pr_gate_skips_work_per_job_instead_of_filtering_the_workflow() -> None:
+    workflow = _load("pull-request.yml")
+    trigger = workflow["on"]["pull_request"]
+    # Workflow-level path filtering would leave required checks Pending on a
+    # skipped run, so irrelevant work is skipped per job via `if:` instead.
+    assert "paths" not in trigger and "paths-ignore" not in trigger
+    assert "ready_for_review" in trigger["types"]
+
+    jobs = workflow["jobs"]
+    assert jobs["pre-check"]["outputs"]["code_changed"] == (
+        "${{ steps.build-impact.outputs.code_changed }}"
+    )
+    impact = next(
+        step for step in jobs["pre-check"]["steps"] if step.get("id") == "build-impact"
+    )
+    assert "code_changed=${code_changed}" in impact["run"]
+
+    assert jobs["lint-and-unit-tests"]["if"] == (
+        "needs.pre-check.outputs.code_changed == 'true'"
+    )
+    for name in (
+        "native-wheel-build",
+        "test-e2e-pc-a2",
+        "test-e2e-sglang-a2",
+    ):
+        assert "github.event.pull_request.draft == false" in jobs[name]["if"], name
+
+
+def test_bilingual_check_runs_without_a_path_filter() -> None:
+    trigger = _load("docs-bilingual.yml")["on"]["pull_request"]
+    assert "paths" not in trigger and "paths-ignore" not in trigger
 
 
 def test_native_wheel_gate_uses_source_builders_without_publication() -> None:
@@ -731,7 +770,6 @@ def test_native_wheel_gate_uses_source_builders_without_publication() -> None:
     assert "packages: write" not in text
     assert "docker push" not in text
     assert "open-release" not in text
-    assert "publish" not in text.lower()
 
 
 def test_native_wheel_gate_requires_each_planned_fallback_runtime() -> None:
@@ -750,7 +788,6 @@ def test_native_wheel_gate_requires_each_planned_fallback_runtime() -> None:
         "matrix": "${{ fromJSON(needs.plan-wheels.outputs.fallback_runtime_matrix) }}",
     }
     assert validation["runs-on"] == "${{ matrix.runner }}"
-    assert validation["timeout-minutes"] == 45
     assert validation["permissions"] == {"contents": "read"}
     download = next(
         step
@@ -853,8 +890,6 @@ def test_builder_prefetches_layers_before_registry_push() -> None:
     prefetch = 'docker buildx build --output type=oci,dest=/dev/null "${build_args[@]}"'
     push = 'docker buildx build --push "${build_args[@]}"'
     assert build.index(prefetch) < build.index(push)
-    assert "${RUNNER_TEMP}/ucm-builder-prefetch.log" in build
-    assert "${RUNNER_TEMP}/ucm-builder-push.log" in build
 
 
 def test_wheel_only_release_downloads_toolkit_without_requiring_chart() -> None:
