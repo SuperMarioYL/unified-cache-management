@@ -1,6 +1,7 @@
 import copy
 import math
 import os
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -13,6 +14,7 @@ from vllm.distributed.kv_transfer.kv_connector.v1.base import (
     KVConnectorRole,
     SupportsHMA,
 )
+from vllm.distributed.parallel_state import get_world_group
 from vllm.model_executor.models.utils import extract_layer_index
 from vllm.v1.core.sched.output import SchedulerOutput
 
@@ -29,7 +31,7 @@ from ucm.integration.vllm.ucm_connector import (
     UCMDirectConnector,
     UCMLiteConnector,
     _get_store_gc_block_size,
-    _log_pd_sync_load_result,
+    _report_pd_load_result,
     _scheduler_read_block_size,
     _use_ucm_connector_cpu_affinity,
     build_kv_hash_meta,
@@ -770,8 +772,7 @@ class UCMFAWAConnectorMetadata(KVConnectorMetadata):
 
     request_meta: dict[str, FAWARequestDispatchMeta] = field(default_factory=dict)
     preempted_req_ids: set[str] = field(default_factory=set)
-    pd_sync_load_req_ids: set[str] = field(default_factory=set, kw_only=True)
-    pd_sync_load_workers: int = field(default=0, kw_only=True)
+    pd_handoff_req_ids: set[str] = field(default_factory=set, kw_only=True)
 
 
 @dataclass
@@ -794,6 +795,7 @@ class FAWAPendingLoad:
     tasks: list[FAWALoadTask] = field(default_factory=list)
     failed: bool = False
     successful_bytes: int = 0
+    pd_handoff: bool = False
     event_handle: int = 0
 
 
@@ -2468,7 +2470,7 @@ class UCMFAWAConnector(UCMDirectConnector, SupportsHMA):
         sync_loads: list[FAWAPendingLoad] = []
         for request_id, request in metadata.request_meta.items():
             if not request.load_keys:
-                _log_pd_sync_load_result(metadata, request_id, skipped=True)
+                _report_pd_load_result(self, metadata, request_id, skipped=True)
                 continue
             if request.load_async and request_id in self._pending_fawa_loads:
                 logger.warning(
@@ -2477,7 +2479,10 @@ class UCMFAWAConnector(UCMDirectConnector, SupportsHMA):
                 )
                 continue
 
-            pending = FAWAPendingLoad(request_id=request_id)
+            pending = FAWAPendingLoad(
+                request_id=request_id,
+                pd_handoff=request_id in metadata.pd_handoff_req_ids,
+            )
             if not request.load_async:
                 sync_loads.append(pending)
             try:
@@ -2574,7 +2579,7 @@ class UCMFAWAConnector(UCMDirectConnector, SupportsHMA):
         for load in sync_loads:
             succeeded = self._wait_all_load_task(load.tasks)
             if succeeded and not load.failed:
-                _log_pd_sync_load_result(metadata, load.request_id)
+                _report_pd_load_result(self, metadata, load.request_id)
 
         if load_event_handle:
             self.device.destroy_event_handle(load_event_handle)
@@ -2618,6 +2623,10 @@ class UCMFAWAConnector(UCMDirectConnector, SupportsHMA):
                     self._failed_fawa_loads.add(request_id)
                     self._connector_worker_meta.mark_failed(request_id)
                 else:
+                    if pending.pd_handoff:
+                        self._connector_worker_meta.mark_pd_ready(
+                            request_id, get_world_group().rank, time.time_ns()
+                        )
                     ucmmetrics.update_stats(
                         {"load_bytes_total": pending.successful_bytes}
                     )

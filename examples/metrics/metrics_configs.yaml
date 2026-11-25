@@ -19,6 +19,26 @@ consumers:
 
 # Counter metrics configuration
 counter:
+  - name: "pd_handoff_observed_total"
+    documentation: "D receive attempts with a valid P-to-last-worker handoff observation"
+  - name: "pd_handoff_no_external_load_total"
+    documentation: "D receive attempts completed without an external KV load"
+  - name: "pd_handoff_failed_total"
+    documentation: "D receive attempts with a failed KV load"
+  - name: "pd_handoff_timeout_total"
+    documentation: "D receive attempts that timed out waiting for shared KV"
+  - name: "pd_handoff_missing_timestamp_total"
+    documentation: "Successful D loads without a valid producer timestamp"
+  - name: "pd_handoff_clock_order_total"
+    documentation: "D loads whose last worker-ready timestamp precedes P completion"
+  - name: "pd_handoff_cancelled_total"
+    documentation: "Pending D receive attempts cancelled before completion"
+  - name: "pd_handoff_incomplete_total"
+    documentation: "Finished D requests missing one or more worker reports"
+  - name: "store_dump_completed_bytes_total"
+    documentation: "Logical KV payload bytes in successfully completed Store dump tasks"
+  - name: "store_load_completed_bytes_total"
+    documentation: "Logical KV payload bytes in successfully completed Store load tasks"
   - name: "asu_lookup_requests_total"
     documentation: "AsuStore Lookup, prefix lookup and reverse lookup calls"
   - name: "asu_lookup_errors_total"
@@ -385,6 +405,9 @@ counter:
 
 # Gauge metrics configuration
 gauge:
+  - name: "pd_visibility_waiting_requests"
+    documentation: "Current D requests deferred because shared KV is not yet visible, counted once per request"
+    multiprocess_mode: "livemostrecent"
   - name: "yuanrong_dram_used_bytes"
     documentation: "YuanRong physical shared-memory usage in bytes"
     multiprocess_mode: "livemostrecent"
@@ -504,6 +527,36 @@ gauge:
 
 # Histogram metrics configuration
 histogram:
+  - name: "pd_kv_handoff_seconds"
+    documentation: "Successful P prefill completion to the last participating D worker declaring KV ready (seconds)"
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 480, 600]
+  - name: "pd_visibility_wait_seconds"
+    documentation: "D first lookup to a schedulable external KV hit, including deferred lookups (seconds)"
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 480, 600]
+  - name: "pd_visibility_deferred_external_hit_seconds"
+    documentation: "Time from the first scheduling deferral until D can proceed with an external KV hit (seconds)"
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 480, 600]
+  - name: "pd_visibility_deferred_timeout_seconds"
+    documentation: "Time from the first scheduling deferral until D falls back to local prefill on timeout (seconds)"
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 480, 600]
+  - name: "pd_visibility_deferred_cancelled_seconds"
+    documentation: "Time from the first scheduling deferral until cancellation while D is waiting for visible KV (seconds)"
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 480, 600]
+  - name: "pd_visibility_deferred_no_external_load_seconds"
+    documentation: "Time from the first scheduling deferral until D can proceed without external KV (seconds)"
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 480, 600]
+  - name: "pd_visibility_deferred_other_seconds"
+    documentation: "Time from the first scheduling deferral until another exit such as failure or preemption while waiting for visible KV (seconds)"
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 480, 600]
+  - name: "pd_worker_ready_spread_seconds"
+    documentation: "Latest minus earliest worker KV-ready time for an observed handoff with at least two loading ranks (seconds)"
+    buckets: [0.000001, 0.000005, 0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 120, 480, 600]
+  - name: "store_dump_task_seconds"
+    documentation: "Store dump submission to observed successful completion per task (seconds)"
+    buckets: [0.000001, 0.000005, 0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 120, 480, 600]
+  - name: "store_load_task_seconds"
+    documentation: "Store load submission to observed successful completion per task (seconds)"
+    buckets: [0.000001, 0.000005, 0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 120, 480, 600]
   - name: "asu_lookup_duration_ms"
     documentation: "AsuStore lookup call duration including key conversion, query wait and result processing (ms)"
     buckets: [0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000, 30000, 60000]

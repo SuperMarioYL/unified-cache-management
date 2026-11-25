@@ -2,9 +2,10 @@
 
 import array
 import ast
+import runpy
+import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import Mock
 
 import numpy as np
@@ -44,15 +45,29 @@ def pipeline():
     return store
 
 
-@pytest.mark.parametrize("distribute", [False, True])
-def test_rank_consistency_forwards_task_option_and_retains_store(pipeline, distribute):
-    cls = methods_type(
-        "ucm/integration/vllm/rank_consistency.py",
-        "RankConsistencyManager",
-        {"__init__", "submit_load", "wait_load"},
-        Any=Any,
+@pytest.fixture
+def rank_module(monkeypatch):
+    # Exercise the whole task lifecycle with only the native dependencies replaced.
+    monkeypatch.setitem(sys.modules, "numpy", np)
+    monkeypatch.setitem(sys.modules, "ucm.logger", SimpleNamespace(init_logger=Mock()))
+    monkeypatch.setitem(
+        sys.modules, "ucm.shared.metrics", SimpleNamespace(ucmmetrics=Mock())
     )
-    manager = cls(is_scheduler=False, use_consistency_manager=False)
+    monkeypatch.setitem(
+        sys.modules, "ucm.store.ucmstore_v1", SimpleNamespace(UcmKVStoreBaseV1=object)
+    )
+    return SimpleNamespace(
+        **runpy.run_path(str(ROOT / "ucm/integration/vllm/rank_consistency.py"))
+    )
+
+
+@pytest.mark.parametrize("distribute", [False, True])
+def test_rank_consistency_forwards_task_option_and_retains_store(
+    pipeline, distribute, rank_module
+):
+    manager = rank_module.RankConsistencyManager(
+        is_scheduler=False, use_consistency_manager=False
+    )
     pipeline.wait = Mock()
     ptrs = np.array([[123]], dtype=np.uint64)
     key = b"k" * 16
@@ -76,14 +91,12 @@ def test_rank_consistency_forwards_task_option_and_retains_store(pipeline, distr
 
 
 @pytest.mark.parametrize("distribute", [False, True])
-def test_rank_consistency_accepts_store_with_original_load_signature(distribute):
-    cls = methods_type(
-        "ucm/integration/vllm/rank_consistency.py",
-        "RankConsistencyManager",
-        {"__init__", "submit_load", "wait_load"},
-        Any=Any,
+def test_rank_consistency_accepts_store_with_original_load_signature(
+    distribute, rank_module
+):
+    manager = rank_module.RankConsistencyManager(
+        is_scheduler=False, use_consistency_manager=False
     )
-    manager = cls(is_scheduler=False, use_consistency_manager=False)
     task = object()
     calls = []
 
@@ -108,14 +121,12 @@ def test_rank_consistency_accepts_store_with_original_load_signature(distribute)
 
 
 @pytest.mark.parametrize("distribute", [False, True])
-def test_custom_pipeline_override_keeps_original_load_signature(pipeline, distribute):
-    cls = methods_type(
-        "ucm/integration/vllm/rank_consistency.py",
-        "RankConsistencyManager",
-        {"__init__", "submit_load", "wait_load"},
-        Any=Any,
+def test_custom_pipeline_override_keeps_original_load_signature(
+    pipeline, distribute, rank_module
+):
+    manager = rank_module.RankConsistencyManager(
+        is_scheduler=False, use_consistency_manager=False
     )
-    manager = cls(is_scheduler=False, use_consistency_manager=False)
     task = object()
 
     class CustomPipeline(type(pipeline)):
@@ -165,3 +176,40 @@ def test_tensor_load_forwards_task_option(pipeline):
 def test_load_defaults_to_local_backend_fill(pipeline):
     pipeline.load_data([b"k" * 16], [0], [[123]])
     assert pipeline.store_.Load.call_args.args[3:] == (0, False)
+
+
+def test_completed_store_tasks_measure_real_payload_once(rank_module):
+    manager = rank_module.RankConsistencyManager(
+        is_scheduler=False, measure_store_tasks=True
+    )
+    record = rank_module.ucmmetrics.update_stats
+    store = SimpleNamespace(
+        config={"tensor_size_list": [16, 32], "shard_size": 4096},
+        dump_data=Mock(return_value=object()),
+        load_data=Mock(return_value=object()),
+        check=Mock(return_value=True),
+        wait=Mock(),
+    )
+    keys = [b"a", b"b"]
+    ptrs = np.array([[100, 200], [300, 0]], dtype=np.uint64)
+    dump = manager.submit_dump(
+        store, {"r1": {keys[0]}, "r2": {keys[1]}}, keys, [0, 0], ptrs, 0
+    )
+    load = manager.submit_load(store, {"r1": keys}, keys, [0, 0], ptrs)
+    assert manager.check_load(load)
+    record.assert_not_called()
+    manager.wait_load(load)
+    manager.wait_dump(dump)
+    assert record.call_count == 2
+    for call, operation in zip(record.call_args_list, ["load", "dump"]):
+        (sample,) = call.args
+        assert sample[f"store_{operation}_task_seconds"] >= 0
+        assert sample[f"store_{operation}_completed_bytes_total"] == 64
+
+    store.wait.side_effect = rank_module.StoreUnhealthyError("unavailable")
+    dump = manager.submit_dump(store, {"r1": set(keys)}, keys, [0, 0], ptrs, 0)
+    manager.wait_dump(dump)
+    load = manager.submit_load(store, {"r1": keys}, keys, [0, 0], ptrs)
+    with pytest.raises(rank_module.StoreUnhealthyError):
+        manager.wait_load(load)
+    assert record.call_count == 2

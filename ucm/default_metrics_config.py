@@ -15,6 +15,16 @@ from typing import Any
 
 # fmt: off
 _COUNTER_METRICS = [
+    ("pd_handoff_observed_total", "D receive attempts with a valid P-to-last-worker handoff observation"),
+    ("pd_handoff_no_external_load_total", "D receive attempts completed without an external KV load"),
+    ("pd_handoff_failed_total", "D receive attempts with a failed KV load"),
+    ("pd_handoff_timeout_total", "D receive attempts that timed out waiting for shared KV"),
+    ("pd_handoff_missing_timestamp_total", "Successful D loads without a valid producer timestamp"),
+    ("pd_handoff_clock_order_total", "D loads whose last worker-ready timestamp precedes P completion"),
+    ("pd_handoff_cancelled_total", "Pending D receive attempts cancelled before completion"),
+    ("pd_handoff_incomplete_total", "Finished D requests missing one or more worker reports"),
+    ("store_dump_completed_bytes_total", "Logical KV payload bytes in successfully completed Store dump tasks"),
+    ("store_load_completed_bytes_total", "Logical KV payload bytes in successfully completed Store load tasks"),
     ("asu_lookup_requests_total", "AsuStore Lookup, prefix lookup and reverse lookup calls"),
     ("asu_lookup_errors_total", "Failed AsuStore lookup calls; excludes timeout fallback to misses"),
     ("asu_lookup_query_blocks_total", "Blocks queried by normally returned Lookup calls, including timeout fallback"),
@@ -593,6 +603,7 @@ _COUNTER_METRICS = [
     ),
 ]
 _GAUGE_METRICS = [
+    ("pd_visibility_waiting_requests", "Current D requests deferred because shared KV is not yet visible, counted once per request", {"multiprocess_mode": "livemostrecent"}),
     (
         "yuanrong_dram_used_bytes",
         "YuanRong physical shared-memory usage in bytes",
@@ -811,7 +822,19 @@ _CONNECTOR_INTERFACE_DURATION_BUCKETS = [
     0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
     2000, 5000, 10000,
 ]
+_PD_REQUEST_BUCKETS = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 480, 600]
+_WORKER_DURATION_BUCKETS = [0.000001, 0.000005, 0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 120, 480, 600]
 _HISTOGRAM_METRICS = [
+    ("pd_kv_handoff_seconds", "Successful P prefill completion to the last participating D worker declaring KV ready (seconds)", _PD_REQUEST_BUCKETS),
+    ("pd_visibility_wait_seconds", "D first lookup to a schedulable external KV hit, including deferred lookups (seconds)", _PD_REQUEST_BUCKETS),
+    ("pd_visibility_deferred_external_hit_seconds", "Time from the first scheduling deferral until D can proceed with an external KV hit (seconds)", _PD_REQUEST_BUCKETS),
+    ("pd_visibility_deferred_timeout_seconds", "Time from the first scheduling deferral until D falls back to local prefill on timeout (seconds)", _PD_REQUEST_BUCKETS),
+    ("pd_visibility_deferred_cancelled_seconds", "Time from the first scheduling deferral until cancellation while D is waiting for visible KV (seconds)", _PD_REQUEST_BUCKETS),
+    ("pd_visibility_deferred_no_external_load_seconds", "Time from the first scheduling deferral until D can proceed without external KV (seconds)", _PD_REQUEST_BUCKETS),
+    ("pd_visibility_deferred_other_seconds", "Time from the first scheduling deferral until another exit such as failure or preemption while waiting for visible KV (seconds)", _PD_REQUEST_BUCKETS),
+    ("pd_worker_ready_spread_seconds", "Latest minus earliest worker KV-ready time for an observed handoff with at least two loading ranks (seconds)", _WORKER_DURATION_BUCKETS),
+    ("store_dump_task_seconds", "Store dump submission to observed successful completion per task (seconds)", _WORKER_DURATION_BUCKETS),
+    ("store_load_task_seconds", "Store load submission to observed successful completion per task (seconds)", _WORKER_DURATION_BUCKETS),
     ("asu_lookup_duration_ms", "AsuStore lookup call duration including key conversion, query wait and result processing (ms)", [0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000, 30000, 60000]),
     ("asu_load_submit_duration_ms", "AsuStore Load submission duration including buffer conversion and failed submissions (ms)", [0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000, 30000, 60000]),
     ("asu_dump_submit_duration_ms", "AsuStore Dump submission duration including buffer conversion and failed submissions (ms)", [0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000, 30000, 60000]),

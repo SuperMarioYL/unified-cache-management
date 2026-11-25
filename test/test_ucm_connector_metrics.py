@@ -1333,7 +1333,9 @@ def test_ucm_connector_uses_fawa_lite_when_lite_and_fawa_are_both_enabled(monkey
         def can_handle_kv_cache_config(cls, kv_cache_config):
             return True
 
-    monkeypatch.setattr(UCMConnector, "_setup_ucm_metrics", lambda *args: None)
+    monkeypatch.setattr(
+        ucm_connector_module.current_platform, "is_cuda", lambda: False, raising=False
+    )
     monkeypatch.setattr(ucm_connector_module, "UCMLiteConnector", FakeInnerConnector)
     monkeypatch.setitem(
         sys.modules,
@@ -1345,12 +1347,13 @@ def test_ucm_connector_uses_fawa_lite_when_lite_and_fawa_are_both_enabled(monkey
     )
 
     connector = UCMConnector(
-        _vllm_config(launch_config={"use_lite": True}),
+        _vllm_config(launch_config={"use_lite": True, "pd_wait_timeout_s": 3.5}),
         KVConnectorRole.SCHEDULER,
         kv_cache_config=SimpleNamespace(kv_cache_groups=[]),
     )
 
     assert type(connector.connector) is FakeFawaLiteConnector
+    assert connector.pd_wait_timeout_s == 3.5
 
 
 def test_ucm_connector_drains_dispatcher_vllm_connector_snapshot():
@@ -3095,7 +3098,7 @@ class RecordingEventDevice:
 
 @pytest.mark.parametrize("all_groups", [True, False])
 def test_pd_prefill_done_requires_normal_producer_completion(monkeypatch, all_groups):
-    log = CaptureLogger()
+    log = Mock()
     monkeypatch.setattr(ucm_connector_module, "logger", log)
     status = SimpleNamespace(FINISHED_LENGTH_CAPPED="length")
     monkeypatch.setattr(ucm_connector_module, "RequestStatus", status)
@@ -3113,14 +3116,88 @@ def test_pd_prefill_done_requires_normal_producer_completion(monkeypatch, all_gr
             SimpleNamespace(request_id="req", kv_transfer_params=params, status=reason),
             (),
         )
-    assert len(log.infos) == 1
-    assert re.fullmatch(r"ucm_pd_prefill_done request_id=req ts_ns=\d+", log.infos[0])
+    log.debug.assert_called_once()
+    message, request_id, stamp = log.debug.call_args.args
+    assert message == "ucm_pd_prefill_done request_id=%s ts_ns=%d"
+    assert request_id == "req" and stamp > 0
+    log.info.assert_not_called()
 
 
-def test_only_sync_decode_dispatches_get_rank_timing():
+@pytest.mark.parametrize("api", ["direct", "all_groups", "all_groups_fallback"])
+@pytest.mark.parametrize(
+    "delay_free, handshake", [(False, None), (True, {"opaque": 7})]
+)
+def test_relay_prefill_returns_same_timestamp_as_log(
+    monkeypatch, api, delay_free, handshake
+):
+    log = Mock()
+    clock = Mock(return_value=12345678)
+    monkeypatch.setattr(ucm_connector_module, "logger", log)
+    monkeypatch.setattr(ucm_connector_module.time, "time_ns", clock)
+    monkeypatch.setattr(
+        ucm_connector_module,
+        "RequestStatus",
+        SimpleNamespace(FINISHED_LENGTH_CAPPED="length"),
+    )
+    outer = object.__new__(UCMConnector)
+    outer.connector = SupportsHMA() if api == "all_groups" else SimpleNamespace()
+    is_hma = api == "all_groups"
+    inner = Mock(return_value=(delay_free, handshake))
+    method = "request_finished_all_groups" if is_hma else "request_finished"
+    setattr(outer.connector, method, inner)
+    params = {"do_remote_decode": True, "ucm_pd_relay": True}
+    req = SimpleNamespace(request_id="r", status="length", kv_transfer_params=params)
+    blocks = [1, 2]
+    all_groups = (blocks, [3])
+    if api == "direct":
+        result = outer.request_finished(req, blocks)
+    else:
+        result = outer.request_finished_all_groups(req, all_groups)
+    inner.assert_called_once_with(req, all_groups if is_hma else blocks)
+    clock.assert_called_once_with()
+    log.debug.assert_called_once_with(
+        "ucm_pd_prefill_done request_id=%s ts_ns=%d", "r", 12345678
+    )
+    assert result == (
+        delay_free,
+        {**(handshake or {}), "pd_prefill_done_unix_ns": 12345678},
+    )
+    assert handshake is None or handshake == {"opaque": 7}
+    assert params == {"do_remote_decode": True, "ucm_pd_relay": True}
+
+
+@pytest.mark.parametrize(
+    "params,reason",
+    [
+        ({"do_remote_decode": True}, "length"),
+        ({"do_remote_decode": True, "ucm_pd_relay": False}, "length"),
+        ({"do_remote_decode": True, "ucm_pd_relay": True}, "cancelled"),
+        ({"do_remote_prefill": True, "ucm_pd_relay": True}, "length"),
+        ({"ucm_pd_relay": True}, "length"),
+    ],
+)
+def test_unmarked_or_unsuccessful_requests_preserve_connector_return(
+    monkeypatch, params, reason
+):
+    monkeypatch.setattr(
+        ucm_connector_module,
+        "RequestStatus",
+        SimpleNamespace(FINISHED_LENGTH_CAPPED="length"),
+    )
+    outer = object.__new__(UCMConnector)
+    original = (True, None)
+    outer.connector = SimpleNamespace(request_finished=Mock(return_value=original))
+    req = SimpleNamespace(request_id="r", status=reason, kv_transfer_params=params)
+    assert outer.request_finished(req, []) is original
+
+
+@pytest.mark.parametrize("metrics_enabled", [False, True])
+def test_only_external_decode_dispatches_request_worker_metrics(metrics_enabled):
     outer = object.__new__(UCMConnector)
     outer.connector = Mock()
     outer._pd_loads_this_step = set()
+    outer._pd_handoff = Mock() if metrics_enabled else None
+    step = SimpleNamespace(finished_req_ids=set(), preempted_req_ids=None)
     outer._vllm_config = SimpleNamespace(
         parallel_config=SimpleNamespace(
             tensor_parallel_size=4,
@@ -3146,49 +3223,50 @@ def test_only_sync_decode_dispatches_get_rank_timing():
         )
     metadata = ucm_connector_module.UCMConnectorMetadata(requests)
     outer.connector.build_connector_meta.return_value = metadata
-    plan = outer.build_connector_meta(None)
-    assert plan.pd_sync_load_req_ids == {"sync"}
-    assert plan.pd_sync_load_workers == 16
+    plan = outer.build_connector_meta(step)
+    assert plan.pd_handoff_req_ids == ({"sync", "async"} if metrics_enabled else set())
+    if metrics_enabled:
+        assert {
+            call.args for call in outer._pd_handoff.expect_workers.call_args_list
+        } == {("sync", 16), ("async", 16)}
     outer.connector.build_connector_meta.return_value = (
         ucm_connector_module.UCMConnectorMetadata(requests)
     )
-    assert outer.build_connector_meta(None).pd_sync_load_req_ids == set()
+    assert not outer.build_connector_meta(step).pd_handoff_req_ids
 
 
 def test_pd_layerwise_rank_waits_for_last_local_layer(monkeypatch, layerwise_connector):
     worker = layerwise_connector
-    log = CaptureLogger()
-    monkeypatch.setattr(ucm_connector_module, "logger", log)
+    clock = Mock(return_value=123)
+    monkeypatch.setattr(ucm_connector_module.time, "time_ns", clock)
+    worker._connector_worker_meta = ucm_connector_module.UCMWorkerMetadata()
     metadata = ucm_connector_module.UCMConnectorMetadata(
         {
             "req": RequestDispatchMeta(([b"k"], [1]), ([], [])),
             "empty": RequestDispatchMeta(([], []), ([], [])),
         },
-        pd_sync_load_req_ids={"req", "empty"},
-        pd_sync_load_workers=2,
+        pd_handoff_req_ids={"req", "empty"},
     )
     worker.bind_connector_metadata(metadata)
     worker.start_load_kv(None)
     first, last = worker.layer_name_to_id
     worker.wait_for_layer_load(first)
-    assert len(log.infos) == 1
-    assert re.fullmatch(
-        r"ucm_pd_sync_load_skipped request_id=empty rank=0 ts_ns=\d+ workers=2",
-        log.infos.pop(),
-    )
+    assert worker._connector_worker_meta.pd_ready_by_request == {"empty": {0: 0}}
     worker.wait_for_layer_load(last)
     worker.wait_for_layer_load(last)
-    assert len(log.infos) == 1
-    assert "ucm_pd_sync_load_done request_id=req rank=0" in log.infos[0]
+    assert worker._connector_worker_meta.pd_ready_by_request == {
+        "empty": {0: 0},
+        "req": {0: 123},
+    }
+    clock.assert_called_once_with()
 
 
 @pytest.mark.parametrize("failure", [None, "submit_wa", "wait_fa"])
 def test_pd_sync_rank_timing_waits_for_both_fawa_stores(monkeypatch, failure):
     worker = _async_fawa_worker(load_async=False)
-    log = CaptureLogger()
-    monkeypatch.setattr(ucm_connector_module, "logger", log)
-    worker._connector_metadata.pd_sync_load_req_ids.add("req")
-    worker._connector_metadata.pd_sync_load_workers = 2
+    worker._connector_worker_meta = ucm_connector_module.UCMWorkerMetadata()
+    worker._connector_metadata.pd_handoff_req_ids.add("req")
+    ready = worker._connector_worker_meta.pd_ready_by_request
 
     if failure == "submit_wa":
         worker.wa_store.load_data.side_effect = RuntimeError("WA submit failed")
@@ -3196,20 +3274,16 @@ def test_pd_sync_rank_timing_waits_for_both_fawa_stores(monkeypatch, failure):
         worker.fa_store.wait.side_effect = RuntimeError("FA load failed")
 
     def wait_wa(task):
-        assert not log.infos
+        assert not ready
 
     worker.wa_store.wait.side_effect = wait_wa
     worker.start_load_kv(None)
     worker.fa_store.wait.assert_called_once()
     assert worker.wa_store.wait.call_count == int(failure != "submit_wa")
     if failure:
-        assert not log.infos
+        assert not ready
     else:
-        assert len(log.infos) == 1
-        assert re.fullmatch(
-            r"ucm_pd_sync_load_done request_id=req rank=0 ts_ns=\d+ workers=2",
-            log.infos[0],
-        )
+        assert ready["req"][0] > 0
 
 
 def _async_fawa_worker(has_window=True, load_async=True):
@@ -3834,3 +3908,429 @@ def test_pipeline_dashboard_contains_only_performance_panels_with_chinese_hints(
         any("\u4e00" <= char <= "\u9fff" for char in panel["description"])
         for panel in all_panels
     )
+
+
+@pytest.mark.parametrize("load_async", [False, True])
+def test_pd_handoff_from_lookup_to_last_worker(monkeypatch, load_async):
+    from ucm.integration.vllm import pd_handoff_metrics
+    from ucm.integration.vllm.rank_consistency import RankConsistencyManager
+
+    observations = []
+    outer = object.__new__(UCMConnector)
+    outer.connector = Mock()
+    outer.connector.get_block_size.return_value = 16
+    outer._pd_handoff = pd_handoff_metrics.PDHandoffMetrics(observations.append)
+    outer._pd_loads_this_step = set()
+    outer._pd_wait_since = {}
+    outer._vllm_config = SimpleNamespace(
+        parallel_config=SimpleNamespace(
+            tensor_parallel_size=2, pipeline_parallel_size=1
+        )
+    )
+    request = SimpleNamespace(
+        request_id="req",
+        num_tokens=33,
+        num_prompt_tokens=33,
+        status="length",
+        kv_transfer_params={
+            "do_remote_prefill": True,
+            "pd_prefill_done_unix_ns": 10**9,
+        },
+    )
+    clock = [1.0]
+    monkeypatch.setattr(pd_handoff_metrics.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        ucm_connector_module,
+        "RequestStatus",
+        SimpleNamespace(
+            FINISHED_ABORTED="aborted",
+            FINISHED_ERROR="error",
+            FINISHED_LENGTH_CAPPED="length",
+        ),
+    )
+    outer.connector.get_num_new_matched_tokens.side_effect = [
+        (0, False),
+        (32, load_async),
+        (32, load_async),
+    ]
+    assert outer.get_num_new_matched_tokens(request, 0) == (None, False)
+    clock[0] += 0.25
+    assert outer.get_num_new_matched_tokens(request, 0) == (32, load_async)
+    assert outer.get_num_new_matched_tokens(request, 0) == (32, load_async)
+    outer.update_state_after_alloc(request, None, 32)
+    dispatch = RequestDispatchMeta(([b"x"], [1]), ([], []), load_async=load_async)
+    outer.connector.build_connector_meta.return_value = (
+        ucm_connector_module.UCMConnectorMetadata({"req": dispatch})
+    )
+    step = SimpleNamespace(finished_req_ids=set(), preempted_req_ids=None)
+    plan = outer.build_connector_meta(step)
+    assert plan.pd_handoff_req_ids == {"req"}
+
+    # The D scheduler may finish a one-token request before it processes
+    # that step's worker metadata. An empty rank still has to acknowledge.
+    outer.request_finished(request, [])
+    worker = object.__new__(UCMDirectConnector)
+    worker._rank_consistency = RankConsistencyManager(
+        is_scheduler=False, use_consistency_manager=False
+    )
+    worker._connector_worker_meta = ucm_connector_module.UCMWorkerMetadata()
+    monkeypatch.setattr(
+        ucm_connector_module, "get_world_group", lambda: SimpleNamespace(rank=0)
+    )
+    monkeypatch.setattr(ucm_connector_module.time, "time_ns", lambda: 1_005_000_000)
+    if load_async:
+        task = worker._rank_consistency.submit_load(
+            Mock(), {"req": [b"x"]}, [b"x"], [0], [[1]]
+        )
+        worker._pending_load_tasks = {
+            "req": PendingLoadTask(task, "req", [1], pd_handoff=True)
+        }
+        assert worker._poll_pending_load_tasks() == {"req"}
+    else:
+        ucm_connector_module._report_pd_load_result(worker, plan, "req")
+    first_meta = worker.build_connector_worker_meta()
+    assert worker.build_connector_worker_meta() is None
+    outer.update_connector_output(SimpleNamespace(kv_connector_worker_meta=first_meta))
+    lookup_samples = [
+        {"pd_visibility_waiting_requests": 0},
+        {"pd_visibility_waiting_requests": 1},
+        {
+            "pd_visibility_waiting_requests": 0,
+            "pd_visibility_deferred_external_hit_seconds": 0.25,
+        },
+        {"pd_visibility_wait_seconds": 0.25},
+    ]
+    assert observations == lookup_samples
+
+    monkeypatch.setattr(
+        ucm_connector_module, "get_world_group", lambda: SimpleNamespace(rank=1)
+    )
+    ucm_connector_module._report_pd_load_result(worker, plan, "req", skipped=True)
+    aggregate = first_meta.aggregate(worker.build_connector_worker_meta())
+    for _ in range(2):
+        outer.update_connector_output(
+            SimpleNamespace(kv_connector_worker_meta=aggregate)
+        )
+    assert "req" not in outer._pd_handoff._requests
+    step.finished_req_ids.add("req")
+    outer.build_connector_meta(step)
+    assert observations == lookup_samples + [
+        {"pd_kv_handoff_seconds": 0.005, "pd_handoff_observed_total": 1}
+    ]
+
+
+@pytest.mark.parametrize(
+    "start, reports, failure, outcome",
+    [
+        (100, {0: 0, 1: 0}, False, "no_external_load"),
+        (None, {0: 109, 1: 112}, False, "missing_timestamp"),
+        ("100", {0: 109, 1: 112}, False, "missing_timestamp"),
+        (110, {0: 109, 1: 112}, False, "clock_order"),
+        (100, {0: 109}, False, "incomplete"),
+        (100, {0: 109, 1: 112}, True, "failed"),
+    ],
+)
+def test_pd_handoff_excludes_unsuccessful_samples(start, reports, failure, outcome):
+    from ucm.integration.vllm.pd_handoff_metrics import PDHandoffMetrics
+
+    observations = []
+    outer = object.__new__(UCMConnector)
+    outer.connector = Mock()
+    tracker = outer._pd_handoff = PDHandoffMetrics(observations.append)
+    tracker.start_lookup("req", {"pd_prefill_done_unix_ns": start})
+    tracker.expect_workers("req", 2)
+    meta = ucm_connector_module.UCMWorkerMetadata(
+        pd_ready_by_request={"req": reports},
+        load_failed_reqs={"req"} if failure else set(),
+    )
+    outer.update_connector_output(SimpleNamespace(kv_connector_worker_meta=meta))
+    tracker.retire("req")
+    outer.update_connector_output(SimpleNamespace(kv_connector_worker_meta=meta))
+    assert observations == [
+        {"pd_visibility_waiting_requests": 0},
+        {f"pd_handoff_{outcome}_total": 1},
+    ]
+
+
+def test_pd_async_fawa_reports_after_both_store_waits():
+    worker = _async_fawa_worker()
+    worker._connector_worker_meta = ucm_connector_module.UCMWorkerMetadata()
+    worker._connector_metadata.pd_handoff_req_ids.add("req")
+    worker.start_load_kv(None)
+    fa, wa = worker._load_wait_executor.futures.values()
+    fa.set_result(None)
+    worker._poll_pending_fawa_loads()
+    assert not worker._connector_worker_meta.pd_ready_by_request
+    worker.clear_connector_metadata()
+    wa.set_result(None)
+    assert worker._poll_pending_fawa_loads() == {"req"}
+    assert worker._connector_worker_meta.pd_ready_by_request["req"][0] > 0
+
+
+@pytest.mark.parametrize(
+    "outcome", ["timeout", "cancelled", "no_external_load", "failed"]
+)
+def test_pd_handoff_terminal_before_any_worker_dispatch(monkeypatch, outcome):
+    from ucm.integration.vllm.pd_handoff_metrics import PDHandoffMetrics
+
+    observations = []
+    outer = object.__new__(UCMConnector)
+    outer._pd_handoff = PDHandoffMetrics(observations.append)
+    outer._pd_wait_since = {}
+    outer.pd_wait_timeout_s = 0
+    outer.connector = Mock()
+    outer.connector.get_block_size.return_value = 16
+    outer.connector.get_num_new_matched_tokens.return_value = (0, False)
+    request = SimpleNamespace(
+        request_id="r",
+        kv_transfer_params={"do_remote_prefill": True},
+        num_prompt_tokens=64,
+        status="aborted",
+    )
+    monkeypatch.setattr(
+        ucm_connector_module,
+        "RequestStatus",
+        SimpleNamespace(
+            FINISHED_ABORTED="aborted",
+            FINISHED_ERROR="error",
+            FINISHED_IGNORED="ignored",
+            FINISHED_LENGTH_CAPPED="length",
+        ),
+    )
+    if outcome == "timeout":
+        assert outer.get_num_new_matched_tokens(request, 0) == (0, False)
+        outer.update_state_after_alloc(request, None, 0)
+    elif outcome in ("cancelled", "failed"):
+        request.status = "ignored" if outcome == "failed" else "aborted"
+        outer.request_finished(request, [])
+    else:
+        # HBM covers every full block; no shared KV became visible.
+        request.num_prompt_tokens = 65
+        assert outer.get_num_new_matched_tokens(request, 64) == (0, False)
+        outer.update_state_after_alloc(request, None, 0)
+    outer._pd_handoff.retire(request.request_id)
+    assert not outer._pd_wait_since
+    assert observations == [
+        {"pd_visibility_waiting_requests": 0},
+        {f"pd_handoff_{outcome}_total": 1},
+    ]
+
+
+def test_pd_handoff_last_ready_rank_and_preempted_attempt():
+    from ucm.integration.vllm.pd_handoff_metrics import PDHandoffMetrics
+
+    observations = []
+    tracker = PDHandoffMetrics(observations.append)
+    for req_id in ["normal", "preempted"]:
+        tracker.start_lookup(req_id, {"pd_prefill_done_unix_ns": 100_000_000})
+        tracker.expect_workers(req_id, 2)
+        tracker.worker_report(req_id, {1: 180_000_000})
+    tracker.preempt("preempted")
+    tracker.worker_report("preempted", {0: 200_000_000})
+    tracker.worker_report("normal", {0: 150_000_000})
+    assert observations == [
+        {"pd_visibility_waiting_requests": 0},
+        {"pd_handoff_incomplete_total": 1},
+        {
+            "pd_kv_handoff_seconds": 0.08,
+            "pd_handoff_observed_total": 1,
+            "pd_worker_ready_spread_seconds": 0.03,
+        },
+    ]
+
+
+@pytest.fixture
+def decode_visibility(monkeypatch):
+    from ucm.integration.vllm import pd_handoff_metrics
+
+    clock = [10.0]
+    monkeypatch.setattr(pd_handoff_metrics.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        ucm_connector_module,
+        "RequestStatus",
+        SimpleNamespace(
+            FINISHED_LENGTH_CAPPED="length",
+            FINISHED_ABORTED="aborted",
+            FINISHED_ERROR="error",
+            FINISHED_IGNORED="ignored",
+        ),
+    )
+    observations = []
+    scheduler = object.__new__(UCMConnector)
+    scheduler.connector = Mock()
+    scheduler.connector.get_block_size.return_value = 16
+    scheduler.connector.get_num_new_matched_tokens.return_value = (0, False)
+    scheduler._pd_wait_since = {}
+    scheduler._pd_loads_this_step = set()
+    scheduler._pd_handoff = pd_handoff_metrics.PDHandoffMetrics(observations.append)
+    scheduler.pd_wait_timeout_s = 5.0
+    req = SimpleNamespace(
+        request_id="first",
+        num_tokens=33,
+        num_prompt_tokens=33,
+        kv_transfer_params={
+            "do_remote_prefill": True,
+            "pd_prefill_done_unix_ns": 10**9,
+        },
+        status="running",
+    )
+    return scheduler, req, observations, clock
+
+
+def test_deferred_visibility_tracks_distinct_wait_intervals(decode_visibility):
+    sched, req, obs, clock = decode_visibility
+    second = SimpleNamespace(**{**vars(req), "request_id": "second"})
+    assert sched.get_num_new_matched_tokens(req, 0) == (None, False)
+    clock[0] += 1
+    assert sched.get_num_new_matched_tokens(req, 0) == (None, False)
+    assert sched.get_num_new_matched_tokens(second, 0) == (None, False)
+    clock[0] += 1
+    sched.connector.get_num_new_matched_tokens.return_value = (32, False)
+    assert sched.get_num_new_matched_tokens(req, 0) == (32, False)
+    sched.connector.get_num_new_matched_tokens.return_value = (0, False)
+    # Block allocation can defer admission even after a successful lookup.
+    assert sched.get_num_new_matched_tokens(req, 0) == (None, False)
+    clock[0] += 2
+    assert sched.get_num_new_matched_tokens(req, 32) == (0, False)
+    second.status = "aborted"
+    sched.request_finished(second, [])
+    assert obs == [
+        {"pd_visibility_waiting_requests": 0},
+        {"pd_visibility_waiting_requests": 1},
+        {"pd_visibility_waiting_requests": 2},
+        {
+            "pd_visibility_waiting_requests": 1,
+            "pd_visibility_deferred_external_hit_seconds": 2,
+        },
+        {"pd_visibility_wait_seconds": 2},
+        {"pd_visibility_waiting_requests": 2},
+        {
+            "pd_visibility_waiting_requests": 1,
+            "pd_visibility_deferred_no_external_load_seconds": 2,
+        },
+        {
+            "pd_visibility_waiting_requests": 0,
+            "pd_visibility_deferred_cancelled_seconds": 3,
+        },
+        {"pd_handoff_cancelled_total": 1},
+    ]
+    assert not sched._pd_wait_since
+    assert second.request_id not in sched._pd_handoff._requests
+
+
+@pytest.mark.parametrize(
+    "exit_path,reason",
+    [
+        ("timeout", "timeout"),
+        ("ignored", "other"),
+        ("finished", "other"),
+        ("preempt", "other"),
+        ("shutdown", "other"),
+    ],
+)
+def test_deferred_visibility_closes_on_scheduler_exit(
+    decode_visibility, exit_path, reason
+):
+    sched, req, obs, clock = decode_visibility
+    assert sched.get_num_new_matched_tokens(req, 0) == (None, False)
+    clock[0] += 6
+    if exit_path == "timeout":
+        assert sched.get_num_new_matched_tokens(req, 0) == (0, False)
+    elif exit_path == "preempt":
+        sched.build_connector_meta(
+            SimpleNamespace(finished_req_ids=set(), preempted_req_ids={req.request_id})
+        )
+    elif exit_path == "shutdown":
+        sched.shutdown()
+    else:
+        req.status = "ignored" if exit_path == "ignored" else "length"
+        sched.request_finished(req, [])
+        assert req.request_id not in sched._pd_handoff._requests
+    assert [v for v in obs if "pd_visibility_waiting_requests" in v] == [
+        {"pd_visibility_waiting_requests": 0},
+        {"pd_visibility_waiting_requests": 1},
+        {
+            "pd_visibility_waiting_requests": 0,
+            f"pd_visibility_deferred_{reason}_seconds": 6,
+        },
+    ]
+    assert not sched._pd_wait_since
+
+
+def test_visibility_timeout_remains_functional_with_metrics_disabled(decode_visibility):
+    sched, req, obs, clock = decode_visibility
+    sched._pd_handoff = None
+    obs.clear()
+    assert sched.get_num_new_matched_tokens(req, 0) == (None, False)
+    clock[0] += 5
+    assert sched.get_num_new_matched_tokens(req, 0) == (0, False)
+    assert not sched._pd_wait_since and not obs
+
+
+def test_waiting_visibility_gauge_keep_one_prom_series_across_drain_roles():
+    _reset_fakes()
+    name = "pd_visibility_waiting_requests"
+    config = _metrics_config()
+    config["gauge"].append({"name": name, "documentation": "waiting"})
+    definitions = get_vllm_connector_metric_definitions(config)
+    prom = UCMPromMetrics(_vllm_config(config), _metric_types(), [], {0: []})
+    gauge = FakeGauge.created["ucm:" + name]
+    assert set(gauge.children) == {("scheduler",)}
+    for drainer, waiting in (("scheduler", 0), (0, 2), ("scheduler", 1), (0, 0)):
+        stats = UCMConnectorStats.from_ucm_snapshot(
+            {}, {name: waiting}, {}, drainer, definitions
+        )
+        prom.observe(stats.data)
+    assert set(gauge.children) == {("scheduler",)}
+    assert gauge.children[("scheduler",)].set_values == [0, 2, 1, 0]
+
+
+def test_new_scheduler_histograms_start_empty_and_first_worker_drained_event_counts_once():
+    from ucm.integration.vllm.pd_handoff_metrics import (
+        PD_SCHEDULER_METRICS,
+        PD_VISIBILITY_WAITING,
+    )
+
+    _reset_fakes()
+    config = _metrics_config()
+    names = PD_SCHEDULER_METRICS - {PD_VISIBILITY_WAITING}
+    config["histogram"].extend(
+        {"name": name, "documentation": name, "buckets": [1, 2]} for name in names
+    )
+    definitions = get_vllm_connector_metric_definitions(config)
+    prom = UCMPromMetrics(_vllm_config(config), _metric_types(), [], {0: []})
+    for name in names:
+        histogram = FakeHistogram.created["ucm:" + name]
+        assert set(histogram.children) == {("scheduler",)}
+        child = histogram.children[("scheduler",)]
+        assert child._sum.value == sum(bucket.value for bucket in child._buckets) == 0
+    assert "ucm:" + PD_VISIBILITY_WAITING not in FakeGauge.created
+    assert not FakeHistogram.created["ucm:load_duration"].children
+
+    name = "pd_visibility_deferred_timeout_seconds"
+    stats = UCMConnectorStats.from_ucm_snapshot(
+        {}, {}, {name: ([0, 1, 0], 1.25)}, 3, definitions
+    )
+    prom.observe(stats.data)
+    histogram = FakeHistogram.created["ucm:" + name]
+    assert set(histogram.children) == {("scheduler",)}
+    child = histogram.children[("scheduler",)]
+    assert sum(bucket.value for bucket in child._buckets) == 1
+    assert child._sum.value == 1.25
+
+
+def test_ready_spread_excludes_skipped_ranks_and_accepts_equal_ready_times():
+    from ucm.integration.vllm.pd_handoff_metrics import PDHandoffMetrics
+
+    obs = []
+    tracker = PDHandoffMetrics(obs.append)
+    tracker.start_lookup("r", {"pd_prefill_done_unix_ns": 100})
+    tracker.expect_workers("r", 3)
+    tracker.worker_report("r", {1: 0, 2: 110})
+    tracker.worker_report("r", {1: 0, 0: 110})
+    tracker.worker_report("r", {1: 0, 0: 110})
+    assert [
+        row["pd_worker_ready_spread_seconds"]
+        for row in obs
+        if "pd_worker_ready_spread_seconds" in row
+    ] == [0]

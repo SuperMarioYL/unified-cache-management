@@ -20,13 +20,45 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Any, Callable
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
 
 from ucm.logger import init_logger
+from ucm.shared.metrics import ucmmetrics
 from ucm.store.pipeline.errors import StoreNotFoundError, StoreUnhealthyError
 from ucm.store.ucmstore_v1 import UcmKVStoreBaseV1
 
 logger = init_logger(__name__)
+
+
+@dataclass
+class _StoreTaskMeasurement:
+    started: float
+    payload_bytes: int | None
+
+    @classmethod
+    def start(cls, store: UcmKVStoreBaseV1, ptrs: Any) -> "_StoreTaskMeasurement":
+        # One address row is one shard. Hybrid layouts leave unused component
+        # pointers null, and the on-disk shard size may include alignment padding.
+        config = getattr(store, "config", {})
+        sizes = config.get("tensor_size_list")
+        addrs = np.asarray(ptrs)
+        payload_bytes = None
+        if sizes is not None and addrs.ndim == 2 and len(sizes) == addrs.shape[1]:
+            payload_bytes = int(np.count_nonzero(addrs, axis=0) @ np.asarray(sizes))
+        elif isinstance(config.get("tensor_size"), int):
+            payload_bytes = int(np.count_nonzero(addrs)) * config["tensor_size"]
+        return cls(time.perf_counter(), payload_bytes)
+
+    def completed(self, operation: str) -> None:
+        stats = {f"store_{operation}_task_seconds": time.perf_counter() - self.started}
+        if self.payload_bytes is not None:
+            stats[f"store_{operation}_completed_bytes_total"] = self.payload_bytes
+        ucmmetrics.update_stats(stats)
 
 
 class RankConsistencyTracker:
@@ -94,9 +126,11 @@ class RankConsistencyManager:
         *,
         is_scheduler: bool,
         use_consistency_manager: bool = True,
+        measure_store_tasks: bool = False,
     ) -> None:
         """Configure scheduler filtering and worker-side dump accounting."""
         self.enabled = use_consistency_manager
+        self._measure_store_tasks = measure_store_tasks
         self._tracker = (
             RankConsistencyTracker() if is_scheduler and self.enabled else None
         )
@@ -104,10 +138,16 @@ class RankConsistencyManager:
         self._missing_blocks: set[bytes] = set()
         self._dump_succeeded_blocks: set[bytes] = set()
         self._load_task_contexts: dict[
-            int, tuple[UcmKVStoreBaseV1, dict[str, list[bytes]]]
+            int,
+            tuple[
+                UcmKVStoreBaseV1, dict[str, list[bytes]], _StoreTaskMeasurement | None
+            ],
         ] = {}
         self._dump_task_contexts: dict[
-            int, tuple[UcmKVStoreBaseV1, dict[str, set[bytes]]]
+            int,
+            tuple[
+                UcmKVStoreBaseV1, dict[str, set[bytes]], _StoreTaskMeasurement | None
+            ],
         ] = {}
         self._dump_blocks_by_request: dict[str, set[bytes]] = {}
         self._dump_failed_blocks_by_request: dict[str, set[bytes]] = {}
@@ -175,6 +215,11 @@ class RankConsistencyManager:
             load_options["distribute_backend_load"] = distribute_backend_load
         if event_handle:
             load_options["prerequisite_handle"] = event_handle
+        measurement = (
+            _StoreTaskMeasurement.start(store, ptrs)
+            if self._measure_store_tasks
+            else None
+        )
         try:
             task = store.load_data(
                 block_ids,
@@ -186,7 +231,7 @@ class RankConsistencyManager:
             if self.enabled and isinstance(error, StoreNotFoundError):
                 self._mark_load_context_missing(request_context)
             raise
-        self._load_task_contexts[id(task)] = (store, request_context)
+        self._load_task_contexts[id(task)] = (store, request_context, measurement)
         return task
 
     def wait_load(self, task: Any, *, wait: Callable[[], Any] | None = None) -> None:
@@ -194,7 +239,7 @@ class RankConsistencyManager:
         task_key = id(task)
         if task_key not in self._load_task_contexts:
             raise RuntimeError("Load task was not submitted through submit_load().")
-        store, request_context = self._load_task_contexts.pop(task_key)
+        store, request_context, measurement = self._load_task_contexts.pop(task_key)
         try:
             if wait is None:
                 store.wait(task)
@@ -204,6 +249,9 @@ class RankConsistencyManager:
             if self.enabled and isinstance(error, StoreNotFoundError):
                 self._mark_load_context_missing(request_context)
             raise
+
+        if measurement is not None:
+            measurement.completed("load")
 
     def check_load(self, task: Any) -> bool:
         """Poll a load task without blocking and retain its wait context.
@@ -215,7 +263,7 @@ class RankConsistencyManager:
         task_key = id(task)
         if task_key not in self._load_task_contexts:
             raise RuntimeError("Load task was not submitted through submit_load().")
-        store, request_context = self._load_task_contexts[task_key]
+        store, request_context, _ = self._load_task_contexts[task_key]
         try:
             return store.check(task)
         except Exception as error:
@@ -246,12 +294,17 @@ class RankConsistencyManager:
             self._dump_blocks_by_request.setdefault(request_id, set()).update(
                 request_block_ids
             )
+        measurement = (
+            _StoreTaskMeasurement.start(store, ptrs)
+            if self._measure_store_tasks
+            else None
+        )
         try:
             task = store.dump_data(block_ids, shard_indices, ptrs, event_handle)
         except Exception:
             self._record_dump_failure(request_context)
             raise
-        self._dump_task_contexts[id(task)] = (store, request_context)
+        self._dump_task_contexts[id(task)] = (store, request_context, measurement)
         return task
 
     def wait_dump(self, task: Any) -> None:
@@ -259,7 +312,7 @@ class RankConsistencyManager:
         task_key = id(task)
         if task_key not in self._dump_task_contexts:
             raise RuntimeError("Dump task was not submitted through submit_dump().")
-        store, request_context = self._dump_task_contexts.pop(task_key)
+        store, request_context, measurement = self._dump_task_contexts.pop(task_key)
         try:
             store.wait(task)
         except StoreUnhealthyError:
@@ -269,13 +322,16 @@ class RankConsistencyManager:
             self._record_dump_failure(request_context)
             raise
 
+        if measurement is not None:
+            measurement.completed("dump")
+
     def finish_dump(self, request_ids: set[str]) -> None:
         """Queue successful blocks for reporting to scheduler."""
         if not self.enabled:
             return
         pending_request_ids = {
             request_id
-            for _, request_context in self._dump_task_contexts.values()
+            for _, request_context, _ in self._dump_task_contexts.values()
             for request_id in request_context
         }
         unfinished = request_ids & pending_request_ids

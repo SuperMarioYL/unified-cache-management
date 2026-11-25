@@ -1,0 +1,3097 @@
+{
+  "uid": "ucm-pd-handoff",
+  "title": "P/D 分离性能 · UCM 与 Mooncake",
+  "description": "每个面板对应一项 P/D 指标。点击图标题旁的链接图标可打开该指标的采集口径、原始面板名和 Prometheus 序列；在详情页点击「查看原图」返回数据。",
+  "schemaVersion": 39,
+  "version": 3,
+  "tags": [
+    "ucm",
+    "pd",
+    "mooncake"
+  ],
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "refresh": "15s",
+  "templating": {
+    "list": [
+      {
+        "type": "datasource",
+        "name": "DS_PROMETHEUS",
+        "label": "Prometheus",
+        "query": "prometheus",
+        "current": {},
+        "options": [],
+        "refresh": 1
+      },
+      {
+        "name": "job",
+        "label": "部署 job",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": {
+          "query": "label_values(up{pd_backend!=\"\"}, job)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "backend",
+        "label": "P/D 后端",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": {
+          "query": "label_values(up{job=~\"$job\",pd_backend!=\"\"}, pd_backend)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Proxy · 首 token 与请求负载",
+      "id": 13,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Streaming TTFT (P95)",
+      "description": "流式首 token 耗时 · TTFT P95\n\n`pd_proxy_ttft_seconds_bucket`。点击标题旁的链接图标查看统计口径。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "links": [
+            {
+              "title": "指标说明 · 流式首 token 耗时 · TTFT P95",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=114&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "placement": "bottom",
+          "displayMode": "list"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, pd_backend) (rate(pd_proxy_ttft_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"proxy\"}[$__rate_interval])))",
+          "legendFormat": "{{pd_backend}}",
+          "range": true
+        }
+      ],
+      "links": [
+        {
+          "title": "指标说明 · 流式首 token 耗时 · TTFT P95",
+          "url": "d/${__dashboard.uid}/pd?viewPanel=114&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "D send to first token (P95)",
+      "description": "发 D 到首 token · P95\n\n`pd_proxy_d_send_to_first_token_seconds_bucket`。点击标题旁的链接图标查看统计口径。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "links": [
+            {
+              "title": "指标说明 · 发 D 到首 token · P95",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=117&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "placement": "bottom",
+          "displayMode": "list"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, pd_backend) (rate(pd_proxy_d_send_to_first_token_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"proxy\"}[$__rate_interval])))",
+          "legendFormat": "{{pd_backend}}",
+          "range": true
+        }
+      ],
+      "links": [
+        {
+          "title": "指标说明 · 发 D 到首 token · P95",
+          "url": "d/${__dashboard.uid}/pd?viewPanel=117&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "bargauge",
+      "title": "Prefill HTTP (P95)",
+      "description": "Prefill HTTP 耗时 · P95\n\n`pd_proxy_prefill_http_seconds_bucket`。点击标题旁的链接图标查看统计口径。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "links": [
+            {
+              "title": "指标说明 · Prefill HTTP 耗时 · P95",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=115&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "text",
+        "showUnfilled": false,
+        "namePlacement": "left",
+        "text": {
+          "titleSize": 13,
+          "valueSize": 20
+        },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, pd_backend) (rate(pd_proxy_prefill_http_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"proxy\"}[$__rate_interval])))",
+          "legendFormat": "{{pd_backend}}",
+          "range": true
+        }
+      ],
+      "links": [
+        {
+          "title": "指标说明 · Prefill HTTP 耗时 · P95",
+          "url": "d/${__dashboard.uid}/pd?viewPanel=115&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "bargauge",
+      "title": "P response to D send (P95)",
+      "description": "P 回包到发 D · P95\n\n`pd_proxy_p_response_to_d_send_seconds_bucket`。点击标题旁的链接图标查看统计口径。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "links": [
+            {
+              "title": "指标说明 · P 回包到发 D · P95",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=116&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "text",
+        "showUnfilled": false,
+        "namePlacement": "left",
+        "text": {
+          "titleSize": 13,
+          "valueSize": 20
+        },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, pd_backend) (rate(pd_proxy_p_response_to_d_send_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"proxy\"}[$__rate_interval])))",
+          "legendFormat": "{{pd_backend}}",
+          "range": true
+        }
+      ],
+      "links": [
+        {
+          "title": "指标说明 · P 回包到发 D · P95",
+          "url": "d/${__dashboard.uid}/pd?viewPanel=116&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Logical request rate by outcome",
+      "description": "逻辑请求完成速率 · 按结局\n\n`pd_proxy_requests_total`。点击标题旁的链接图标查看统计口径。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 14,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "links": [
+            {
+              "title": "指标说明 · 逻辑请求完成速率 · 按结局",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=124&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".* · total$"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    5
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "placement": "bottom",
+          "displayMode": "list"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (pd_backend, outcome) (rate(pd_proxy_requests_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"proxy\"}[$__rate_interval]))",
+          "legendFormat": "{{pd_backend}} · {{outcome}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (pd_backend) (rate(pd_proxy_requests_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"proxy\"}[$__rate_interval]))",
+          "legendFormat": "{{pd_backend}} · total",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "links": [
+        {
+          "title": "指标说明 · 逻辑请求完成速率 · 按结局",
+          "url": "d/${__dashboard.uid}/pd?viewPanel=124&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Unsuccessful logical requests",
+      "description": "未成功逻辑请求占比\n\n`pd_proxy_requests_total`。点击标题旁的链接图标查看统计口径。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 17,
+        "w": 10,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "links": [
+            {
+              "title": "指标说明 · 未成功逻辑请求占比",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=125&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "textMode": "value_and_name",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "(sum by (pd_backend) (rate(pd_proxy_requests_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"proxy\",outcome!~\"success|retried|recomputed\"}[$__rate_interval])) or (0 * sum by (pd_backend) (rate(pd_proxy_requests_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"proxy\"}[$__rate_interval])))) / (sum by (pd_backend) (rate(pd_proxy_requests_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"proxy\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{pd_backend}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "指标说明 · 未成功逻辑请求占比",
+          "url": "d/${__dashboard.uid}/pd?viewPanel=125&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "vLLM 引擎 · P/D 的 token 来源与调度等待",
+      "id": 26,
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 27,
+          "type": "barchart",
+          "title": "Prefill prompt tokens by source",
+          "description": "Prefill prompt token 来源 · P 端占比\n\n`vllm:prompt_tokens_by_source_total`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 25,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "links": [
+                {
+                  "title": "指标说明 · Prefill prompt token 来源 · P 端占比",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=127&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "本地计算"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "blue"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "本地缓存"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "外部 KV"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "orange"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "orientation": "horizontal",
+            "stacking": "normal",
+            "groupWidth": 0.65,
+            "barWidth": 0.8,
+            "showValue": "auto",
+            "legend": {
+              "placement": "bottom",
+              "showLegend": true,
+              "displayMode": "list"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pd_backend, source) (rate(vllm:prompt_tokens_by_source_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"p\",source=~\"local_compute|local_cache_hit|external_kv_transfer\"}[$__rate_interval])) / on (pd_backend) group_left() (sum by (pd_backend) (rate(vllm:prompt_tokens_by_source_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"p\",source=~\"local_compute|local_cache_hit|external_kv_transfer\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · {{source}}",
+              "range": false,
+              "refId": "A",
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "groupingToMatrix",
+              "options": {
+                "rowField": "pd_backend",
+                "columnField": "source",
+                "valueField": "Value",
+                "emptyValue": "null"
+              }
+            },
+            {
+              "id": "organize",
+              "options": {
+                "renameByName": {
+                  "pd_backend": "后端",
+                  "pd_backend\\source": "后端",
+                  "local_compute": "本地计算",
+                  "local_cache_hit": "本地缓存",
+                  "external_kv_transfer": "外部 KV"
+                },
+                "indexByName": {
+                  "pd_backend": 0,
+                  "pd_backend\\source": 0,
+                  "local_compute": 1,
+                  "local_cache_hit": 2,
+                  "external_kv_transfer": 3
+                }
+              }
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · Prefill prompt token 来源 · P 端占比",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=127&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 28,
+          "type": "barchart",
+          "title": "Decode prompt tokens by source",
+          "description": "Decode prompt token 来源 · D 端占比\n\n`vllm:prompt_tokens_by_source_total`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 25,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "links": [
+                {
+                  "title": "指标说明 · Decode prompt token 来源 · D 端占比",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=128&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "本地计算"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "blue"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "本地缓存"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "外部 KV"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "orange"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "orientation": "horizontal",
+            "stacking": "normal",
+            "groupWidth": 0.65,
+            "barWidth": 0.8,
+            "showValue": "auto",
+            "legend": {
+              "placement": "bottom",
+              "showLegend": true,
+              "displayMode": "list"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pd_backend, source) (rate(vllm:prompt_tokens_by_source_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\",source=~\"local_compute|local_cache_hit|external_kv_transfer\"}[$__rate_interval])) / on (pd_backend) group_left() (sum by (pd_backend) (rate(vllm:prompt_tokens_by_source_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\",source=~\"local_compute|local_cache_hit|external_kv_transfer\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · {{source}}",
+              "range": false,
+              "refId": "A",
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "groupingToMatrix",
+              "options": {
+                "rowField": "pd_backend",
+                "columnField": "source",
+                "valueField": "Value",
+                "emptyValue": "null"
+              }
+            },
+            {
+              "id": "organize",
+              "options": {
+                "renameByName": {
+                  "pd_backend": "后端",
+                  "pd_backend\\source": "后端",
+                  "local_compute": "本地计算",
+                  "local_cache_hit": "本地缓存",
+                  "external_kv_transfer": "外部 KV"
+                },
+                "indexByName": {
+                  "pd_backend": 0,
+                  "pd_backend\\source": 0,
+                  "local_compute": 1,
+                  "local_cache_hit": 2,
+                  "external_kv_transfer": 3
+                }
+              }
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · Decode prompt token 来源 · D 端占比",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=128&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 29,
+          "type": "timeseries",
+          "title": "Requests waiting at P and D",
+          "description": "当前排队请求数 · P / D\n\n`vllm:num_requests_waiting`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 33,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "custom": {
+                "lineInterpolation": "stepAfter",
+                "axisSoftMax": 1,
+                "spanNulls": false
+              },
+              "decimals": 0,
+              "links": [
+                {
+                  "title": "指标说明 · 当前排队请求数 · P / D",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=129&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            },
+            "legend": {
+              "showLegend": true,
+              "placement": "bottom",
+              "displayMode": "list"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pd_backend, pd_role) (vllm:num_requests_waiting{pd_backend=~\"$backend\",job=~\"$job\",pd_role=~\"p|d\"})",
+              "legendFormat": "{{pd_backend}} · {{pd_role}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · 当前排队请求数 · P / D",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=129&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 30,
+          "type": "table",
+          "title": "First scheduling wait at P and D",
+          "description": "请求首次调度等待 · P / D\n\n`vllm:request_queue_time_seconds_bucket`、`vllm:request_queue_time_seconds_sum` 等。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 33,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "custom": {
+                "minWidth": 70
+              },
+              "noValue": "—",
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "—"
+                    }
+                  }
+                }
+              ],
+              "links": [
+                {
+                  "title": "指标说明 · 请求首次调度等待 · P / D",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=130&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm"
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, pd_backend, pd_role) (rate(vllm:request_queue_time_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=~\"p|d\"}[$__rate_interval])))",
+              "legendFormat": "{{pd_backend}} · {{pd_role}} · P95",
+              "range": false,
+              "refId": "A",
+              "instant": true,
+              "format": "table"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (pd_backend, pd_role) (rate(vllm:request_queue_time_seconds_sum{pd_backend=~\"$backend\",job=~\"$job\",pd_role=~\"p|d\"}[$__rate_interval])) / (sum by (pd_backend, pd_role) (rate(vllm:request_queue_time_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=~\"p|d\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · {{pd_role}} · mean",
+              "range": false,
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "pd_backend": 0,
+                  "pd_role": 1,
+                  "Value #B": 2,
+                  "Value #A": 3
+                },
+                "renameByName": {
+                  "pd_backend": "后端",
+                  "pd_role": "角色",
+                  "Value #B": "均值",
+                  "Value #A": "P95"
+                }
+              }
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · 请求首次调度等待 · P / D",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=130&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "UCM 请求级 KV 交接",
+      "id": 1,
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "P50 · UCM prefill done to decode KV ready",
+          "description": "KV 交接耗时 P50\n\n`ucm:pd_kv_handoff_seconds_bucket`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 26,
+            "w": 8,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "noValue": "—",
+              "decimals": 2,
+              "links": [
+                {
+                  "title": "指标说明 · KV 交接耗时 P50",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=102&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "none",
+            "graphMode": "area",
+            "justifyMode": "auto"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.5, sum by (le, pd_backend) (rate(ucm:pd_kv_handoff_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])))",
+              "legendFormat": "{{pd_backend}}",
+              "range": true
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · KV 交接耗时 P50",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=102&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "P95 · UCM prefill done to decode KV ready",
+          "description": "KV 交接耗时 P95\n\n`ucm:pd_kv_handoff_seconds_bucket`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 26,
+            "w": 8,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "noValue": "—",
+              "decimals": 2,
+              "links": [
+                {
+                  "title": "指标说明 · KV 交接耗时 P95",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=103&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "none",
+            "graphMode": "area",
+            "justifyMode": "auto"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le, pd_backend) (rate(ucm:pd_kv_handoff_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])))",
+              "legendFormat": "{{pd_backend}}",
+              "range": true
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · KV 交接耗时 P95",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=103&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "P99 · UCM prefill done to decode KV ready",
+          "description": "KV 交接耗时 P99\n\n`ucm:pd_kv_handoff_seconds_bucket`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 26,
+            "w": 8,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "noValue": "—",
+              "decimals": 2,
+              "links": [
+                {
+                  "title": "指标说明 · KV 交接耗时 P99",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=104&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "none",
+            "graphMode": "area",
+            "justifyMode": "auto"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.99, sum by (le, pd_backend) (rate(ucm:pd_kv_handoff_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])))",
+              "legendFormat": "{{pd_backend}}",
+              "range": true
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · KV 交接耗时 P99",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=104&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "UCM handoffs with a latency sample",
+          "description": "有效交接样本数（所选时段）\n\n`ucm:pd_kv_handoff_seconds_count`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 34,
+            "w": 7,
+            "h": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "noValue": "—",
+              "decimals": 1,
+              "links": [
+                {
+                  "title": "指标说明 · 有效交接样本数（所选时段）",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=105&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "none",
+            "graphMode": "none",
+            "justifyMode": "auto"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pd_backend) (increase(ucm:pd_kv_handoff_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__range]))",
+              "legendFormat": "{{pd_backend}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · 有效交接样本数（所选时段）",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=105&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "bargauge",
+          "title": "UCM handoffs without a latency sample",
+          "description": "无交接耗时样本的原因（所选时段）\n\n`ucm:pd_handoff_no_external_load_total`、`ucm:pd_handoff_failed_total` 等。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 7,
+            "y": 34,
+            "w": 17,
+            "h": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "noValue": "—",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "decimals": 1,
+              "links": [
+                {
+                  "title": "指标说明 · 无交接耗时样本的原因（所选时段）",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=106&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "valueMode": "text",
+            "namePlacement": "left",
+            "sizing": "auto",
+            "showUnfilled": false,
+            "minVizWidth": 8,
+            "minVizHeight": 17,
+            "maxVizHeight": 38,
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pd_backend) (increase(ucm:pd_handoff_no_external_load_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__range]))",
+              "legendFormat": "{{pd_backend}} · 无需外部加载",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (pd_backend) (increase(ucm:pd_handoff_failed_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__range]))",
+              "legendFormat": "{{pd_backend}} · 请求或加载失败",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "C",
+              "expr": "sum by (pd_backend) (increase(ucm:pd_handoff_timeout_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__range]))",
+              "legendFormat": "{{pd_backend}} · 等待共享 KV 超时",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "D",
+              "expr": "sum by (pd_backend) (increase(ucm:pd_handoff_missing_timestamp_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__range]))",
+              "legendFormat": "{{pd_backend}} · 缺少 P 时间戳",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "E",
+              "expr": "sum by (pd_backend) (increase(ucm:pd_handoff_clock_order_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__range]))",
+              "legendFormat": "{{pd_backend}} · 时间戳顺序异常",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "F",
+              "expr": "sum by (pd_backend) (increase(ucm:pd_handoff_cancelled_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__range]))",
+              "legendFormat": "{{pd_backend}} · 请求取消",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "G",
+              "expr": "sum by (pd_backend) (increase(ucm:pd_handoff_incomplete_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__range]))",
+              "legendFormat": "{{pd_backend}} · worker 回报不全",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · 无交接耗时样本的原因（所选时段）",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=106&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "UCM 共享 KV 等待与多卡就绪",
+      "id": 31,
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 32,
+          "type": "timeseries",
+          "title": "D requests waiting for shared KV",
+          "description": "D 正在等待共享 KV 的请求数\n\n`ucm:pd_visibility_waiting_requests`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 27,
+            "w": 12,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "custom": {
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 2,
+                "fillOpacity": 7,
+                "spanNulls": false,
+                "showPoints": "auto",
+                "pointSize": 4
+              },
+              "decimals": 0,
+              "noValue": "—",
+              "links": [
+                {
+                  "title": "指标说明 · D 正在等待共享 KV 的请求数",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=132&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            },
+            "legend": {
+              "placement": "bottom",
+              "showLegend": true,
+              "displayMode": "list"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pd_backend) (ucm:pd_visibility_waiting_requests{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\",worker_rank=\"scheduler\"})",
+              "legendFormat": "{{pd_backend}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · D 正在等待共享 KV 的请求数",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=132&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 33,
+          "type": "timeseries",
+          "title": "Mean D visibility wait after deferral",
+          "description": "D 推迟调度后的平均等待时间\n\n`ucm:pd_visibility_deferred_external_hit_seconds_sum`、`ucm:pd_visibility_deferred_external_hit_seconds_count` 等。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 27,
+            "w": 12,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 7,
+                "spanNulls": false,
+                "showPoints": "always",
+                "pointSize": 4
+              },
+              "links": [
+                {
+                  "title": "指标说明 · D 推迟调度后的平均等待时间",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=133&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            },
+            "legend": {
+              "placement": "bottom",
+              "showLegend": true,
+              "displayMode": "list"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pd_backend) (rate(ucm:pd_visibility_deferred_external_hit_seconds_sum{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) / (sum by (pd_backend) (rate(ucm:pd_visibility_deferred_external_hit_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · 外部命中",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "expr": "sum by (pd_backend) (rate(ucm:pd_visibility_deferred_timeout_seconds_sum{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) / (sum by (pd_backend) (rate(ucm:pd_visibility_deferred_timeout_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · 超时回退",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "expr": "sum by (pd_backend) (rate(ucm:pd_visibility_deferred_cancelled_seconds_sum{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) / (sum by (pd_backend) (rate(ucm:pd_visibility_deferred_cancelled_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · 请求取消",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "expr": "sum by (pd_backend) (rate(ucm:pd_visibility_deferred_no_external_load_seconds_sum{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) / (sum by (pd_backend) (rate(ucm:pd_visibility_deferred_no_external_load_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · 可在本地继续",
+              "range": true,
+              "refId": "D"
+            },
+            {
+              "expr": "sum by (pd_backend) (rate(ucm:pd_visibility_deferred_other_seconds_sum{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) / (sum by (pd_backend) (rate(ucm:pd_visibility_deferred_other_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · 其他退场",
+              "range": true,
+              "refId": "E"
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · D 推迟调度后的平均等待时间",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=133&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "stat",
+          "title": "UCM · D lookup to visible KV (P95)",
+          "description": "D 查询到外部 KV 可用的 P95\n\n`ucm:pd_visibility_wait_seconds_bucket`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 34,
+            "w": 12,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "noValue": "—",
+              "decimals": 2,
+              "links": [
+                {
+                  "title": "指标说明 · D 查询到外部 KV 可用的 P95",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=109&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "none",
+            "graphMode": "area",
+            "justifyMode": "auto"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le, pd_backend) (rate(ucm:pd_visibility_wait_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])))",
+              "legendFormat": "{{pd_backend}}",
+              "range": true
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · D 查询到外部 KV 可用的 P95",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=109&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 34,
+          "type": "timeseries",
+          "title": "KV readiness spread across ≥2 loading workers",
+          "description": "多卡 KV 就绪时间差\n\n`ucm:pd_worker_ready_spread_seconds_bucket`、`ucm:pd_worker_ready_spread_seconds_count` 等。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 34,
+            "w": 12,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 7,
+                "spanNulls": false,
+                "showPoints": "always",
+                "pointSize": 4
+              },
+              "links": [
+                {
+                  "title": "指标说明 · 多卡 KV 就绪时间差",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=134&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "/ · P95$/"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        6,
+                        4
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            },
+            "legend": {
+              "placement": "bottom",
+              "showLegend": true,
+              "displayMode": "list"
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, pd_backend) (rate(ucm:pd_worker_ready_spread_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval]))) and on (pd_backend) (sum by (pd_backend) (rate(ucm:pd_worker_ready_spread_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · P95",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (pd_backend) (rate(ucm:pd_worker_ready_spread_seconds_sum{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) / (sum by (pd_backend) (rate(ucm:pd_worker_ready_spread_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · 均值",
+              "range": true
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · 多卡 KV 就绪时间差",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=134&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "UCM Store 与 Mooncake TE 数据搬运",
+      "id": 7,
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 8,
+          "type": "bargauge",
+          "title": "UCM · P dump and D load per Store task (P95)",
+          "description": "UCM Store 读写任务耗时 P95\n\n`ucm:store_dump_task_seconds_bucket`、`ucm:store_load_task_seconds_bucket`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 28,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "noValue": "—",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "decimals": 2,
+              "links": [
+                {
+                  "title": "指标说明 · UCM Store 读写任务耗时 P95",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=108&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "valueMode": "text",
+            "namePlacement": "left",
+            "sizing": "auto",
+            "showUnfilled": false,
+            "minVizWidth": 8,
+            "minVizHeight": 17,
+            "maxVizHeight": 38,
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le, pd_backend) (rate(ucm:store_dump_task_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"p\"}[$__rate_interval])))",
+              "legendFormat": "{{pd_backend}} · P 写出",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "expr": "histogram_quantile(0.95, sum by (le, pd_backend) (rate(ucm:store_load_task_seconds_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])))",
+              "legendFormat": "{{pd_backend}} · D 读取",
+              "range": true
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · UCM Store 读写任务耗时 P95",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=108&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Completed KV payload (MiB/s)",
+          "description": "成功搬运的 KV 数据速率\n\n`ucm:store_dump_completed_bytes_total`、`ucm:store_load_completed_bytes_total` 等。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 28,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: MiB/s",
+              "min": 0,
+              "noValue": "—",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 7,
+                "spanNulls": false,
+                "showPoints": "auto",
+                "pointSize": 4
+              },
+              "links": [
+                {
+                  "title": "指标说明 · 成功搬运的 KV 数据速率",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=111&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            },
+            "legend": {
+              "placement": "bottom",
+              "showLegend": true,
+              "displayMode": "list"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pd_backend) (rate(ucm:store_dump_completed_bytes_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"p\"}[$__rate_interval])) / 1048576",
+              "legendFormat": "{{pd_backend}} · P 写出",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (pd_backend) (rate(ucm:store_load_completed_bytes_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) / 1048576",
+              "legendFormat": "{{pd_backend}} · D Store 读取",
+              "range": true
+            },
+            {
+              "refId": "C",
+              "expr": "sum by (pd_backend) (rate(mooncake_te_read_bytes_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval])) / 1048576",
+              "legendFormat": "{{pd_backend}} · D TE 读取",
+              "range": true
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · 成功搬运的 KV 数据速率",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=111&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 35,
+          "type": "timeseries",
+          "title": "Successful UCM Store task rate",
+          "description": "UCM Store 成功任务速率\n\n`ucm:store_dump_task_seconds_count`、`ucm:store_load_task_seconds_count`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 36,
+            "w": 12,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: 任务/s",
+              "min": 0,
+              "noValue": "—",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 7,
+                "spanNulls": false,
+                "showPoints": "auto",
+                "pointSize": 4
+              },
+              "links": [
+                {
+                  "title": "指标说明 · UCM Store 成功任务速率",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=135&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            },
+            "legend": {
+              "placement": "bottom",
+              "showLegend": true,
+              "displayMode": "list"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pd_backend) (rate(ucm:store_dump_task_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"p\"}[$__rate_interval]))",
+              "legendFormat": "{{pd_backend}} · P 写出",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "expr": "sum by (pd_backend) (rate(ucm:store_load_task_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval]))",
+              "legendFormat": "{{pd_backend}} · D 读取",
+              "range": true,
+              "refId": "B"
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · UCM Store 成功任务速率",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=135&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 36,
+          "type": "bargauge",
+          "title": "Mean payload per successful Store task",
+          "description": "UCM Store 每个成功任务的平均数据量\n\n`ucm:store_dump_completed_bytes_total`、`ucm:store_dump_task_seconds_count` 等。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 36,
+            "w": 12,
+            "h": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "noValue": "—",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "decimals": 1,
+              "links": [
+                {
+                  "title": "指标说明 · UCM Store 每个成功任务的平均数据量",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=136&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "valueMode": "text",
+            "namePlacement": "left",
+            "sizing": "auto",
+            "showUnfilled": false,
+            "minVizWidth": 8,
+            "minVizHeight": 17,
+            "maxVizHeight": 38,
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pd_backend) (rate(ucm:store_dump_completed_bytes_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"p\"}[$__rate_interval])) / (sum by (pd_backend) (rate(ucm:store_dump_task_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"p\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · P 写出",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "expr": "sum by (pd_backend) (rate(ucm:store_load_completed_bytes_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) / (sum by (pd_backend) (rate(ucm:store_load_task_seconds_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d\"}[$__rate_interval])) > 0)",
+              "legendFormat": "{{pd_backend}} · D 读取",
+              "range": true,
+              "refId": "B"
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · UCM Store 每个成功任务的平均数据量",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=136&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Mooncake · 解码端原生 TE 读任务",
+      "id": 18,
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 23,
+          "type": "stat",
+          "title": "D worker TE targets",
+          "description": "D worker 的 TE 采集覆盖\n\n`up`、`mooncake_te_read_requests_total`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 29,
+            "w": 24,
+            "h": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "noValue": "—",
+              "links": [
+                {
+                  "title": "指标说明 · D worker 的 TE 采集覆盖",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=123&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* · 覆盖率$"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percentunit"
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "thresholds"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": null
+                        },
+                        {
+                          "color": "orange",
+                          "value": 1e-06
+                        },
+                        {
+                          "color": "green",
+                          "value": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "values": false
+            },
+            "textMode": "value_and_name",
+            "colorMode": "value",
+            "graphMode": "none"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "count by (pd_backend) (up{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"})",
+              "legendFormat": "{{pd_backend}} · 配置目标",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (pd_backend) (up{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"})",
+              "legendFormat": "{{pd_backend}} · 抓取可达",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "C",
+              "expr": "count by (pd_backend) ((up{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"} == 1) and on (job, instance, pd_backend, pd_role) mooncake_te_read_requests_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}) or (0 * count by (pd_backend) (up{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}))",
+              "legendFormat": "{{pd_backend}} · 返回 TE 指标",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "D",
+              "expr": "(count by (pd_backend) ((up{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"} == 1) and on (job, instance, pd_backend, pd_role) mooncake_te_read_requests_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}) or (0 * count by (pd_backend) (up{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}))) / count by (pd_backend) (up{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"})",
+              "legendFormat": "{{pd_backend}} · 覆盖率",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · D worker 的 TE 采集覆盖",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=123&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "Successful D read task latency (ms)",
+          "description": "D 端成功读任务耗时\n\n`mooncake_te_read_latency_us_bucket`、`mooncake_te_read_latency_us_sum` 等。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 33,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "min": 0,
+              "custom": {
+                "lineWidth": 1,
+                "spanNulls": false
+              },
+              "links": [
+                {
+                  "title": "指标说明 · D 端成功读任务耗时",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=119&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* · P95$"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* · 均值$"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        6,
+                        5
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 2
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            },
+            "legend": {
+              "showLegend": true,
+              "placement": "bottom",
+              "displayMode": "list"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.5, sum by (le, pd_backend) (rate(mooncake_te_read_latency_us_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval]))) / 1000",
+              "legendFormat": "{{pd_backend}} · P50",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "expr": "histogram_quantile(0.95, sum by (le, pd_backend) (rate(mooncake_te_read_latency_us_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval]))) / 1000",
+              "legendFormat": "{{pd_backend}} · P95",
+              "range": true
+            },
+            {
+              "refId": "C",
+              "expr": "histogram_quantile(0.99, sum by (le, pd_backend) (rate(mooncake_te_read_latency_us_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval]))) / 1000",
+              "legendFormat": "{{pd_backend}} · P99",
+              "range": true
+            },
+            {
+              "refId": "D",
+              "expr": "sum by (pd_backend) (rate(mooncake_te_read_latency_us_sum{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval])) / sum by (pd_backend) (rate(mooncake_te_read_latency_us_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval])) / 1000",
+              "legendFormat": "{{pd_backend}} · 均值",
+              "range": true
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · D 端成功读任务耗时",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=119&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 20,
+          "type": "bargauge",
+          "title": "Successful D read task payload",
+          "description": "D 端成功读任务大小\n\n`mooncake_te_read_size_bytes_bucket`、`mooncake_te_read_size_bytes_sum` 等。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 33,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "noValue": "—",
+              "links": [
+                {
+                  "title": "指标说明 · D 端成功读任务大小",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=120&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "valueMode": "color",
+            "namePlacement": "left",
+            "minVizHeight": 22,
+            "minVizWidth": 8,
+            "maxVizHeight": 100,
+            "showUnfilled": true,
+            "sizing": "auto",
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "last"
+              ],
+              "fields": ""
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.5, sum by (le, pd_backend) (rate(mooncake_te_read_size_bytes_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval])))",
+              "legendFormat": "{{pd_backend}} · P50",
+              "range": false,
+              "instant": true
+            },
+            {
+              "refId": "B",
+              "expr": "histogram_quantile(0.95, sum by (le, pd_backend) (rate(mooncake_te_read_size_bytes_bucket{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval])))",
+              "legendFormat": "{{pd_backend}} · P95",
+              "range": false,
+              "instant": true
+            },
+            {
+              "refId": "C",
+              "expr": "sum by (pd_backend) (rate(mooncake_te_read_size_bytes_sum{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval])) / sum by (pd_backend) (rate(mooncake_te_read_size_bytes_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval]))",
+              "legendFormat": "{{pd_backend}} · 均值",
+              "range": false,
+              "instant": true
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · D 端成功读任务大小",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=120&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "D read task rate",
+          "description": "D 端读任务完成速率\n\n`mooncake_te_read_requests_total`、`mooncake_te_read_latency_us_count`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 41,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: 任务/秒",
+              "min": 0,
+              "custom": {
+                "spanNulls": false,
+                "lineWidth": 2
+              },
+              "links": [
+                {
+                  "title": "指标说明 · D 端读任务完成速率",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=121&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* · 全部终态$"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        6,
+                        5
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 4
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            },
+            "legend": {
+              "showLegend": true,
+              "placement": "bottom",
+              "displayMode": "list"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pd_backend) (rate(mooncake_te_read_requests_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval]))",
+              "legendFormat": "{{pd_backend}} · 全部终态",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (pd_backend) (rate(mooncake_te_read_latency_us_count{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval]))",
+              "legendFormat": "{{pd_backend}} · 成功",
+              "range": true
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · D 端读任务完成速率",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=121&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "id": 22,
+          "type": "timeseries",
+          "title": "D read failures and timeouts",
+          "description": "D 端读任务失败与超时速率\n\n`mooncake_te_read_failures_total`、`mooncake_te_read_timeouts_total`。点击标题旁的链接图标查看统计口径。",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 41,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: 任务/秒",
+              "min": 0,
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 70,
+                "lineWidth": 0,
+                "barAlignment": 0,
+                "barWidthFactor": 0.8,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "spanNulls": false
+              },
+              "links": [
+                {
+                  "title": "指标说明 · D 端读任务失败与超时速率",
+                  "url": "d/${__dashboard.uid}/pd?viewPanel=122&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+                  "targetBlank": false
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* · 失败或取消$"
+                },
+                "properties": [
+                  {
+                    "id": "custom.barAlignment",
+                    "value": -1
+                  },
+                  {
+                    "id": "custom.barWidthFactor",
+                    "value": 0.45
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* · 超时$"
+                },
+                "properties": [
+                  {
+                    "id": "custom.barAlignment",
+                    "value": 1
+                  },
+                  {
+                    "id": "custom.barWidthFactor",
+                    "value": 0.45
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            },
+            "legend": {
+              "showLegend": true,
+              "placement": "bottom",
+              "displayMode": "list"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pd_backend) (rate(mooncake_te_read_failures_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval]))",
+              "legendFormat": "{{pd_backend}} · 失败或取消",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (pd_backend) (rate(mooncake_te_read_timeouts_total{pd_backend=~\"$backend\",job=~\"$job\",pd_role=\"d-te\"}[$__rate_interval]))",
+              "legendFormat": "{{pd_backend}} · 超时",
+              "range": true
+            }
+          ],
+          "links": [
+            {
+              "title": "指标说明 · D 端读任务失败与超时速率",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=122&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 90,
+      "type": "row",
+      "title": "指标说明 · 点击图标题旁的链接可直接查看",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "type": "text",
+          "id": 114,
+          "title": "指标说明 · 流式首 token 耗时 · TTFT P95",
+          "gridPos": {
+            "x": 0,
+            "y": 30,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Streaming TTFT (P95)\n\n**采集端**　共用 proxy　`/metrics`\n\n### 统计口径\n\n共用 proxy 从收到请求计到从 D 收到首个有效生成 token。每个成功的单输出流式请求记一次。每个点先合并该后端各 proxy 的桶，再计算滚动 P95。\n\n### 指标与 Prometheus 序列\n\n`pd_proxy_ttft_seconds_bucket`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Streaming TTFT (P95)",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=14&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 117,
+          "title": "指标说明 · 发 D 到首 token · P95",
+          "gridPos": {
+            "x": 12,
+            "y": 30,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　D send to first token (P95)\n\n**采集端**　共用 proxy　`/metrics`\n\n### 统计口径\n\n共用 proxy 从第一次向 D 发 HTTP 请求计到收到首个有效生成 token。每个成功的单输出流式请求记一次，包含 D 排队、KV 加载、首次计算和响应回传。各点是该后端的滚动 P95。\n\n### 指标与 Prometheus 序列\n\n`pd_proxy_d_send_to_first_token_seconds_bucket`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · D send to first token (P95)",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=17&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 115,
+          "title": "指标说明 · Prefill HTTP 耗时 · P95",
+          "gridPos": {
+            "x": 0,
+            "y": 39,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Prefill HTTP (P95)\n\n**采集端**　共用 proxy　`/metrics`\n\n### 统计口径\n\n共用 proxy 为每个成功的单输出请求累计所有 P HTTP 尝试的耗时，包含重试。每根横条是一个后端在所选时段内最后一个有样本的滚动 P95。三个阶段的 P95 不可相加。\n\n### 指标与 Prometheus 序列\n\n`pd_proxy_prefill_http_seconds_bucket`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Prefill HTTP (P95)",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=15&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 116,
+          "title": "指标说明 · P 回包到发 D · P95",
+          "gridPos": {
+            "x": 12,
+            "y": 39,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　P response to D send (P95)\n\n**采集端**　共用 proxy　`/metrics`\n\n### 统计口径\n\n共用 proxy 从收到第一个 P 响应计到第一次向 D 发送请求。每个经历该阶段的成功单输出请求记一次。每根横条显示该后端在所选时段内最后一个有样本的滚动 P95。\n\n### 指标与 Prometheus 序列\n\n`pd_proxy_p_response_to_d_send_seconds_bucket`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · P response to D send (P95)",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=16&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 124,
+          "title": "指标说明 · 逻辑请求完成速率 · 按结局",
+          "gridPos": {
+            "x": 0,
+            "y": 48,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Logical request rate by outcome\n\n**采集端**　共用 proxy　`/metrics`\n\n### 统计口径\n\n共用 proxy 为每个结束的逻辑请求记录一次最终结局。各线表示滚动请求数/秒，虚线 total 包含所有结局。success、retried、recomputed 分别表示直接成功、重试后成功、重算后成功。其余曲线统计取消、上游错误、响应中断及未完成重算。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| 各请求结局 | `pd_proxy_requests_total` |\n| total | `pd_proxy_requests_total` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Logical request rate by outcome",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=24&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 125,
+          "title": "指标说明 · 未成功逻辑请求占比",
+          "gridPos": {
+            "x": 12,
+            "y": 48,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Unsuccessful logical requests\n\n**采集端**　共用 proxy　`/metrics`\n\n### 统计口径\n\n共用 proxy 按已结束的逻辑请求计数。分子包含 cancelled、upstream_error、interrupted 和 unresolved_recompute，分母包含所有结局。重试或重算后成功的请求留在分母。主值是每个后端最后一个有流量的滚动窗口占比，迷你趋势显示其变化。\n\n### 指标与 Prometheus 序列\n\n`pd_proxy_requests_total`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Unsuccessful logical requests",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=25&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 127,
+          "title": "指标说明 · Prefill prompt token 来源 · P 端占比",
+          "gridPos": {
+            "x": 0,
+            "y": 57,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Prefill prompt tokens by source\n\n**采集端**　P 端　`/metrics`\n\n### 统计口径\n\n取 P 端 vLLM API 的 token 计数。在所选结束时刻的滚动窗口内，每根横条代表一个后端，三类 token 增量用同一分母。本地计算 local_compute、本地缓存命中 local_cache_hit、外部 KV 供给 external_kv_transfer 相加为 100%。窗口内没有 prompt token 时留空。\n\n### 指标与 Prometheus 序列\n\n`vllm:prompt_tokens_by_source_total`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Prefill prompt tokens by source",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=27&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 128,
+          "title": "指标说明 · Decode prompt token 来源 · D 端占比",
+          "gridPos": {
+            "x": 12,
+            "y": 57,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Decode prompt tokens by source\n\n**采集端**　D 端　`/metrics`\n\n### 统计口径\n\n取 D 端 vLLM API 的 token 计数。在所选结束时刻的滚动窗口内，每根横条代表一个后端，三类 token 增量用同一分母。本地计算 local_compute、本地缓存命中 local_cache_hit、外部 KV 供给 external_kv_transfer 相加为 100%。窗口内没有 prompt token 时留空。\n\n### 指标与 Prometheus 序列\n\n`vllm:prompt_tokens_by_source_total`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Decode prompt tokens by source",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=28&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 129,
+          "title": "指标说明 · 当前排队请求数 · P / D",
+          "gridPos": {
+            "x": 0,
+            "y": 66,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Requests waiting at P and D\n\n**采集端**　P 与 D 端　`/metrics`\n\n### 统计口径\n\n在每个 Prometheus 抓取时刻对同后端、同角色的 vLLM scheduler 等待人数求和。各条阶梯线对应 P 或 D。人数包括等待 KV、容量等原因；两次抓取之间结束的短等待可能看不到。\n\n### 指标与 Prometheus 序列\n\n`vllm:num_requests_waiting`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Requests waiting at P and D",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=29&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 130,
+          "title": "指标说明 · 请求首次调度等待 · P / D",
+          "gridPos": {
+            "x": 12,
+            "y": 66,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　First scheduling wait at P and D\n\n**采集端**　P 与 D 端　`/metrics`\n\n### 统计口径\n\nP 和 D 的 vLLM 引擎分别统计已完成请求从首次入队到首次调度的等待，表中每行对应一个后端和角色。均值用累计秒数除以样本数，P95 按桶插值。两列均取所选结束时刻的滚动窗口。D 侧等待可能包含异步 KV 加载；小样本时优先读均值。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| P / D · P95 | `vllm:request_queue_time_seconds_bucket` |\n| P / D · mean | `vllm:request_queue_time_seconds_sum`、`vllm:request_queue_time_seconds_count` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · First scheduling wait at P and D",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=30&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 102,
+          "title": "指标说明 · KV 交接耗时 P50",
+          "gridPos": {
+            "x": 0,
+            "y": 75,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　P50 · UCM prefill done to decode KV ready\n\n**采集端**　D 端　`/metrics`\n\n### 统计口径\n\nD scheduler 从 P 正常完成 prefill 计到最后一个实际加载 KV 的 D worker 就绪，每个有效接收尝试记一次。卡片显示所选时段内最后一个有样本的滚动窗口的中位数，下方是滚动趋势；同一后端先合并各 D 的桶，再插值估算。跨主机需对时。\n\n### 指标与 Prometheus 序列\n\n`ucm:pd_kv_handoff_seconds_bucket`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · P50 · UCM prefill done to decode KV ready",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=2&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 103,
+          "title": "指标说明 · KV 交接耗时 P95",
+          "gridPos": {
+            "x": 12,
+            "y": 75,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　P95 · UCM prefill done to decode KV ready\n\n**采集端**　D 端　`/metrics`\n\n### 统计口径\n\nD scheduler 从 P 正常完成 prefill 计到最后一个实际加载 KV 的 D worker 就绪，每个有效接收尝试记一次。卡片显示所选时段内最后一个有样本的滚动窗口的第 95 百分位，下方是滚动趋势；同一后端先合并各 D 的桶，再插值估算。跨主机需对时。\n\n### 指标与 Prometheus 序列\n\n`ucm:pd_kv_handoff_seconds_bucket`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · P95 · UCM prefill done to decode KV ready",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=3&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 104,
+          "title": "指标说明 · KV 交接耗时 P99",
+          "gridPos": {
+            "x": 0,
+            "y": 84,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　P99 · UCM prefill done to decode KV ready\n\n**采集端**　D 端　`/metrics`\n\n### 统计口径\n\nD scheduler 从 P 正常完成 prefill 计到最后一个实际加载 KV 的 D worker 就绪，每个有效接收尝试记一次。卡片显示所选时段内最后一个有样本的滚动窗口的第 99 百分位，下方是滚动趋势；同一后端先合并各 D 的桶，再插值估算。跨主机需对时。\n\n### 指标与 Prometheus 序列\n\n`ucm:pd_kv_handoff_seconds_bucket`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · P99 · UCM prefill done to decode KV ready",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=4&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 105,
+          "title": "指标说明 · 有效交接样本数（所选时段）",
+          "gridPos": {
+            "x": 12,
+            "y": 84,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　UCM handoffs with a latency sample\n\n**采集端**　D 端　`/metrics`\n\n### 统计口径\n\nD scheduler 每次收到完整 worker 回报且能计算 P→D 耗时时计一个接收尝试。此处按后端汇总所选完整时段的计数增量；Prometheus 会向区间边界外推，估计数可带小数。\n\n### 指标与 Prometheus 序列\n\n`ucm:pd_kv_handoff_seconds_count`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · UCM handoffs with a latency sample",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=5&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 106,
+          "title": "指标说明 · 无交接耗时样本的原因（所选时段）",
+          "gridPos": {
+            "x": 0,
+            "y": 93,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　UCM handoffs without a latency sample\n\n**采集端**　D 端　`/metrics`\n\n### 统计口径\n\nD scheduler 按终态记录每个接收尝试。每条横条为所选完整时段的计数增量之和，可能因边界外推带小数。无需外部加载包含正常命中本地缓存的请求。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| 无需外部加载 | `ucm:pd_handoff_no_external_load_total` |\n| 请求或加载失败 | `ucm:pd_handoff_failed_total` |\n| 等待共享 KV 超时 | `ucm:pd_handoff_timeout_total` |\n| 缺少 P 时间戳 | `ucm:pd_handoff_missing_timestamp_total` |\n| 时间戳顺序异常 | `ucm:pd_handoff_clock_order_total` |\n| 请求取消 | `ucm:pd_handoff_cancelled_total` |\n| worker 回报不全 | `ucm:pd_handoff_incomplete_total` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · UCM handoffs without a latency sample",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=6&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 132,
+          "title": "指标说明 · D 正在等待共享 KV 的请求数",
+          "gridPos": {
+            "x": 12,
+            "y": 93,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　D requests waiting for shared KV\n\n**采集端**　D 端　`/metrics`\n\n### 统计口径\n\nD scheduler 在共享 KV 不足、实际推迟请求时将它计入等待人数，离开等待后移除。曲线按后端汇总各 scheduler 在采样时刻的当前值；短于抓取间隔的等待可能看不到。\n\n### 指标与 Prometheus 序列\n\n`ucm:pd_visibility_waiting_requests`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · D requests waiting for shared KV",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=32&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 133,
+          "title": "指标说明 · D 推迟调度后的平均等待时间",
+          "gridPos": {
+            "x": 0,
+            "y": 102,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Mean D visibility wait after deferral\n\n**采集端**　D 端　`/metrics`\n\n### 统计口径\n\nD scheduler 从确实推迟请求计到退出等待，一段连续等待只记一次；同一请求退出后再进入会另记。各曲线按后端和退出原因，以滚动窗口内的总等待时间增速除以已结束区间数增速；没有结束区间时留空。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| 外部命中 | `ucm:pd_visibility_deferred_external_hit_seconds_sum`、`ucm:pd_visibility_deferred_external_hit_seconds_count` |\n| 超时回退 | `ucm:pd_visibility_deferred_timeout_seconds_sum`、`ucm:pd_visibility_deferred_timeout_seconds_count` |\n| 请求取消 | `ucm:pd_visibility_deferred_cancelled_seconds_sum`、`ucm:pd_visibility_deferred_cancelled_seconds_count` |\n| 可在本地继续 | `ucm:pd_visibility_deferred_no_external_load_seconds_sum`、`ucm:pd_visibility_deferred_no_external_load_seconds_count` |\n| 其他退场 | `ucm:pd_visibility_deferred_other_seconds_sum`、`ucm:pd_visibility_deferred_other_seconds_count` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Mean D visibility wait after deferral",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=33&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 109,
+          "title": "指标说明 · D 查询到外部 KV 可用的 P95",
+          "gridPos": {
+            "x": 12,
+            "y": 102,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　UCM · D lookup to visible KV (P95)\n\n**采集端**　D 端　`/metrics`\n\n### 统计口径\n\nD scheduler 从首次 lookup 计到外部 KV 命中满足调度条件。首次查询即命中也有样本，仅靠本地 KV 继续则没有样本。按后端合并各 D 的滚动直方图桶后估算 P95；卡片取所选时段内最后一个有样本的滚动窗口，下方保留趋势。\n\n### 指标与 Prometheus 序列\n\n`ucm:pd_visibility_wait_seconds_bucket`"
+          },
+          "links": [
+            {
+              "title": "查看原图 · UCM · D lookup to visible KV (P95)",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=9&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 134,
+          "title": "指标说明 · 多卡 KV 就绪时间差",
+          "gridPos": {
+            "x": 0,
+            "y": 111,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　KV readiness spread across ≥2 loading workers\n\n**采集端**　D 端　`/metrics`\n\n### 统计口径\n\nD scheduler 对至少两个实际加载 KV 的 worker，计算同一有效交接中最晚与最早就绪时刻之差，每次交接记一个样本。按后端展示滚动均值和按桶估算的 P95；只有一张卡加载时没有样本，多机 worker 需对时。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| P95 | `ucm:pd_worker_ready_spread_seconds_bucket`、`ucm:pd_worker_ready_spread_seconds_count` |\n| 均值 | `ucm:pd_worker_ready_spread_seconds_sum`、`ucm:pd_worker_ready_spread_seconds_count` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · KV readiness spread across ≥2 loading workers",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=34&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 108,
+          "title": "指标说明 · UCM Store 读写任务耗时 P95",
+          "gridPos": {
+            "x": 12,
+            "y": 111,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　UCM · P dump and D load per Store task (P95)\n\n**采集端**　P 端、D 端　`/metrics`\n\n### 统计口径\n\nP worker 统计成功写出任务，D worker 统计成功读取任务；从提交计到 connector 观察到完成，包含等待或轮询的滞后。一条请求可包含多个任务。每条横条展示所选时段内该序列最后一个有样本的滚动 P95；按后端合并各 worker 的桶后估算。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| P 写出 | `ucm:store_dump_task_seconds_bucket` |\n| D 读取 | `ucm:store_load_task_seconds_bucket` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · UCM · P dump and D load per Store task (P95)",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=8&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 111,
+          "title": "指标说明 · 成功搬运的 KV 数据速率",
+          "gridPos": {
+            "x": 0,
+            "y": 120,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Completed KV payload (MiB/s)\n\n**采集端**　P 端、D 端、D worker 的 Classic TE 独立端点　`/metrics`\n\n### 统计口径\n\n按后端汇总 worker 在滚动窗口内成功搬运的逻辑字节数增速，除以 1,048,576 后以 MiB/s 显示。可对比两种后端的 D 读取，P 写出展示 UCM 中转的另一段；这些值可与实际链路流量不同。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| P 写出 | `ucm:store_dump_completed_bytes_total` |\n| D Store 读取 | `ucm:store_load_completed_bytes_total` |\n| D TE 读取 | `mooncake_te_read_bytes_total` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Completed KV payload (MiB/s)",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=11&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 135,
+          "title": "指标说明 · UCM Store 成功任务速率",
+          "gridPos": {
+            "x": 12,
+            "y": 120,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Successful UCM Store task rate\n\n**采集端**　P 端、D 端　`/metrics`\n\n### 统计口径\n\nP 和 D worker 每次观察到写或读任务成功完成各计一次，按后端汇总滚动完成速率。一次请求可以拆成多个任务，单位为任务/秒。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| P 写出 | `ucm:store_dump_task_seconds_count` |\n| D 读取 | `ucm:store_load_task_seconds_count` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Successful UCM Store task rate",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=35&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 136,
+          "title": "指标说明 · UCM Store 每个成功任务的平均数据量",
+          "gridPos": {
+            "x": 0,
+            "y": 129,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Mean payload per successful Store task\n\n**采集端**　P 端、D 端　`/metrics`\n\n### 统计口径\n\nP 写出和 D 读取分别使用同一后端、同一滚动窗口内的完成字节增速除以成功任务数增速，显示每个任务的平均逻辑字节数。每条横条取所选时段内该序列最后一个有样本的滚动窗口；worker 需提供字节统计。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| P 写出 | `ucm:store_dump_completed_bytes_total`、`ucm:store_dump_task_seconds_count` |\n| D 读取 | `ucm:store_load_completed_bytes_total`、`ucm:store_load_task_seconds_count` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Mean payload per successful Store task",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=36&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 123,
+          "title": "指标说明 · D worker 的 TE 采集覆盖",
+          "gridPos": {
+            "x": 12,
+            "y": 129,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　D worker TE targets\n\n**采集端**　D worker 的 Classic TE 独立端点　`/metrics`\n\n### 统计口径\n\n统计所选部署配置的 D worker TE 端点。可达表示本次抓取成功；“返回 TE 指标”还要求端点暴露原生 read 计数器。覆盖率 = 返回 TE 指标的端点数 ÷ 配置目标数。对照实际 worker 数可发现漏配。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| 配置目标 | `up` |\n| 抓取可达 | `up` |\n| 返回 TE 指标 | `up`、`mooncake_te_read_requests_total` |\n| 覆盖率 | `up`、`mooncake_te_read_requests_total` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · D worker TE targets",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=23&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 119,
+          "title": "指标说明 · D 端成功读任务耗时",
+          "gridPos": {
+            "x": 0,
+            "y": 138,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Successful D read task latency (ms)\n\n**采集端**　D worker 的 Classic TE 独立端点　`/metrics`\n\n### 统计口径\n\n数据来自 D worker 的 mooncake_te_read_latency_us。合并各 worker 的成功任务桶，再估算 P50、P95、P99；均值用耗时增量除以成功任务数。原始单位为微秒，图中显示毫秒。一次 KV 拉取可并行执行多个读任务。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| P50 | `mooncake_te_read_latency_us_bucket` |\n| P95 | `mooncake_te_read_latency_us_bucket` |\n| P99 | `mooncake_te_read_latency_us_bucket` |\n| 均值 | `mooncake_te_read_latency_us_sum`、`mooncake_te_read_latency_us_count` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Successful D read task latency (ms)",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=19&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 120,
+          "title": "指标说明 · D 端成功读任务大小",
+          "gridPos": {
+            "x": 12,
+            "y": 138,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　Successful D read task payload\n\n**采集端**　D worker 的 Classic TE 独立端点　`/metrics`\n\n### 统计口径\n\n按图右端的速率窗口汇总 D worker 的 mooncake_te_read_size_bytes。条形分别展示每个成功任务的 P50、P95 和平均有效字节数。分位数按桶边界估算，均值取实测总字节除以成功任务数；无成功样本时显示空值。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| P50 | `mooncake_te_read_size_bytes_bucket` |\n| P95 | `mooncake_te_read_size_bytes_bucket` |\n| 均值 | `mooncake_te_read_size_bytes_sum`、`mooncake_te_read_size_bytes_count` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · Successful D read task payload",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=20&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 121,
+          "title": "指标说明 · D 端读任务完成速率",
+          "gridPos": {
+            "x": 0,
+            "y": 147,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　D read task rate\n\n**采集端**　D worker 的 Classic TE 独立端点　`/metrics`\n\n### 统计口径\n\nD worker 的 mooncake_te_read_requests_total 统计所有终态任务；成功速率来自 read_latency_us_count。一条数据点是滑动窗口内的平均任务数/秒。两条线重合表示窗口内的终态任务均成功。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| 全部终态 | `mooncake_te_read_requests_total` |\n| 成功 | `mooncake_te_read_latency_us_count` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · D read task rate",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=21&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": 122,
+          "title": "指标说明 · D 端读任务失败与超时速率",
+          "gridPos": {
+            "x": 12,
+            "y": 147,
+            "w": 12,
+            "h": 9
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**原面板**　D read failures and timeouts\n\n**采集端**　D worker 的 Classic TE 独立端点　`/metrics`\n\n### 统计口径\n\nD worker 的 mooncake_te_read_failures_total 合并失败和取消，mooncake_te_read_timeouts_total 单列超时。柱高表示滑动窗口内每秒进入相应终态的任务数；需要结合采集覆盖判断零值。\n\n### 指标与 Prometheus 序列\n\n| 图例或计算项 | 原始序列 |\n| --- | --- |\n| 失败或取消 | `mooncake_te_read_failures_total` |\n| 超时 | `mooncake_te_read_timeouts_total` |\n"
+          },
+          "links": [
+            {
+              "title": "查看原图 · D read failures and timeouts",
+              "url": "d/${__dashboard.uid}/pd?viewPanel=22&from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}&${backend:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "title": "UCM Store I/O 明细",
+      "type": "link",
+      "url": "/d/ucm-vllm-pipeline-store?from=${__from}&to=${__to}&${DS_PROMETHEUS:queryparam}&${job:queryparam}",
+      "includeVars": false,
+      "keepTime": false,
+      "targetBlank": true,
+      "icon": "external link",
+      "tooltip": "Open the UCM Store dashboard with this time range, datasource and job selection."
+    }
+  ]
+}

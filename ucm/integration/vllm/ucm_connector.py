@@ -59,6 +59,7 @@ from ucm.integration.vllm.metrics import (
     UCMPromMetrics,
 )
 from ucm.integration.vllm.partial_tail import PartialTailBuffer
+from ucm.integration.vllm.pd_handoff_metrics import PDHandoffMetrics
 from ucm.integration.vllm.rank_consistency import RankConsistencyManager
 from ucm.integration.vllm.request_hasher import RequestHasher
 from ucm.logger import init_logger
@@ -68,6 +69,7 @@ from ucm.metrics_config import (
     consumer_enabled,
     get_vllm_connector_metric_definitions,
     load_launch_metrics_config,
+    metrics_enabled,
     setup_ucm_metrics,
 )
 from ucm.metrics_dispatcher import get_metrics_dispatcher
@@ -425,35 +427,39 @@ class RequestMeta:
     token_processed: int = 0
 
 
-def _log_pd_sync_load_result(
-    metadata, request_id: str, *, skipped: bool = False
+def _report_pd_load_result(
+    worker, metadata, request_id: str, *, skipped: bool = False
 ) -> None:
-    """Report a local KV-ready time, or acknowledge that this worker had no KV to load."""
-    if request_id not in getattr(metadata, "pd_sync_load_req_ids", ()):
+    """Report local KV readiness, including no-work ranks needed for fan-in."""
+    if request_id not in getattr(metadata, "pd_handoff_req_ids", ()):
         return
-    logger.info(
-        "ucm_pd_sync_load_%s request_id=%s rank=%d ts_ns=%d workers=%d",
-        "skipped" if skipped else "done",
-        request_id,
-        get_world_group().rank,
-        time.time_ns(),
-        metadata.pd_sync_load_workers,
-    )
-
-
-def _log_pd_prefill_done(request: "Request") -> None:
-    params = getattr(request, "kv_transfer_params", None)
-    if (
-        params
-        and params.get("do_remote_decode")
-        and not params.get("do_remote_prefill")
-        and request.status == RequestStatus.FINISHED_LENGTH_CAPPED
-    ):
-        logger.info(
-            "ucm_pd_prefill_done request_id=%s ts_ns=%d",
-            request.request_id,
-            time.time_ns(),
+    rank = get_world_group().rank
+    ready_ns = 0 if skipped else time.time_ns()
+    worker._connector_worker_meta.mark_pd_ready(request_id, rank, ready_ns)
+    if not metadata.request_meta[request_id].load_async:
+        logger.debug(
+            "ucm_pd_sync_load_%s request_id=%s rank=%d ts_ns=%d",
+            "skipped" if skipped else "done",
+            request_id,
+            rank,
+            ready_ns,
         )
+
+
+def _record_pd_prefill_done(request: "Request", params: dict) -> int | None:
+    """Log a successful producer completion and return its timestamp for UCM relay."""
+    if (
+        not params.get("do_remote_decode")
+        or params.get("do_remote_prefill")
+        or request.status != RequestStatus.FINISHED_LENGTH_CAPPED
+    ):
+        return None
+    done_ns = time.time_ns()
+    logger.debug(
+        "ucm_pd_prefill_done request_id=%s ts_ns=%d", request.request_id, done_ns
+    )
+    # Direct-transfer connectors own their handshake in a mixed deployment.
+    return done_ns if params.get("ucm_pd_relay") is True else None
 
 
 @dataclass
@@ -1608,8 +1614,7 @@ class MiniMaxM3KVCacheLayout(KVCacheLayout):
 class UCMConnectorMetadata(KVConnectorMetadata):
     request_meta: dict[str, RequestDispatchMeta] = field(default_factory=dict)
     preempted_req_ids: set[str] = field(default_factory=set)
-    pd_sync_load_req_ids: set[str] = field(default_factory=set, kw_only=True)
-    pd_sync_load_workers: int = field(default=0, kw_only=True)
+    pd_handoff_req_ids: set[str] = field(default_factory=set, kw_only=True)
 
 
 @dataclass
@@ -1626,17 +1631,22 @@ class PendingLoadTask:
     task: Task
     request_id: str
     vllm_block_ids: list[int]
+    pd_handoff: bool = False
 
 
 @dataclass
 class UCMWorkerMetadata(KVConnectorWorkerMetadata):
-    """Worker-to-scheduler metadata for load failures and Dump success."""
+    """Worker results for rank consistency, load failures, and P/D KV readiness."""
 
     is_mla: bool = False
     load_failed_reqs: set[str] = field(default_factory=set)
     missing_reqs: set[str] = field(default_factory=set)
     missing_blocks: set[bytes] = field(default_factory=set)
     dump_succeeded_blocks: set[bytes] = field(default_factory=set)
+    pd_ready_by_request: dict[str, dict[int, int]] = field(default_factory=dict)
+
+    def mark_pd_ready(self, request_id: str, rank: int, timestamp_ns: int) -> None:
+        self.pd_ready_by_request[request_id] = {rank: timestamp_ns}
 
     def mark_failed(self, req_id: str) -> None:
         """Record a failed load request from this worker."""
@@ -1650,6 +1660,8 @@ class UCMWorkerMetadata(KVConnectorWorkerMetadata):
         assert isinstance(other, UCMWorkerMetadata)
         assert self.is_mla == other.is_mla
 
+        for req_id, ready_by_rank in other.pd_ready_by_request.items():
+            self.pd_ready_by_request.setdefault(req_id, {}).update(ready_by_rank)
         self.load_failed_reqs.update(other.load_failed_reqs)
         self.missing_reqs.update(other.missing_reqs)
         self.missing_blocks.update(other.missing_blocks)
@@ -1771,6 +1783,7 @@ class UCMDirectConnector(KVConnectorBase_V1):
 
         self._rank_consistency = RankConsistencyManager(
             is_scheduler=role == KVConnectorRole.SCHEDULER,
+            measure_store_tasks=metrics_enabled(self.launch_config),
             use_consistency_manager=self._consistency_manager_enabled(
                 self.launch_config, self.is_mla
             ),
@@ -2577,7 +2590,7 @@ class UCMDirectConnector(KVConnectorBase_V1):
         request_to_load_blocks: dict[str, int] = {}
         for request_id, request in metadata.request_meta.items():
             if len(request.load_block_ids[0]) == 0:
-                _log_pd_sync_load_result(metadata, request_id, skipped=True)
+                _report_pd_load_result(self, metadata, request_id, skipped=True)
                 continue
             sync_load = not request.load_async
             if sync_load:
@@ -2592,8 +2605,8 @@ class UCMDirectConnector(KVConnectorBase_V1):
                     f"UCM load request {request_id}",
                 )
                 if len(ucm_block_ids) == 0:
+                    _report_pd_load_result(self, metadata, request_id, skipped=True)
                     if sync_load:
-                        _log_pd_sync_load_result(metadata, request_id, skipped=True)
                         num_loaded_block -= len(request.load_block_ids[0])
                     if request.load_async:
                         self._finished_async_load_req_ids.add(request_id)
@@ -2629,6 +2642,7 @@ class UCMDirectConnector(KVConnectorBase_V1):
                         task=task,
                         request_id=request_id,
                         vllm_block_ids=list(vllm_block_ids),
+                        pd_handoff=request_id in metadata.pd_handoff_req_ids,
                     )
                 else:
                     request_to_task[request_id] = task
@@ -2665,7 +2679,7 @@ class UCMDirectConnector(KVConnectorBase_V1):
                 self._connector_worker_meta.mark_failed(request_id)
                 num_loaded_block -= request_to_load_blocks.get(request_id, 0)
             else:
-                _log_pd_sync_load_result(metadata, request_id)
+                _report_pd_load_result(self, metadata, request_id)
 
         load_bytes = num_loaded_block * self.block_data_size
         if is_load:
@@ -2874,6 +2888,7 @@ class UCMDirectConnector(KVConnectorBase_V1):
         if (
             not self._rank_consistency.enabled
             and not self._connector_worker_meta.load_failed_reqs
+            and not self._connector_worker_meta.pd_ready_by_request
         ):
             return None
         self._rank_consistency.update_worker_meta(self._connector_worker_meta)
@@ -2950,6 +2965,11 @@ class UCMDirectConnector(KVConnectorBase_V1):
                     pending.vllm_block_ids,
                 )
                 self._connector_worker_meta.mark_failed(request_id)
+            else:
+                if pending.pd_handoff:
+                    self._connector_worker_meta.mark_pd_ready(
+                        request_id, get_world_group().rank, time.time_ns()
+                    )
             finally:
                 if completed:
                     pending_load_tasks.pop(request_id, None)
@@ -3312,7 +3332,7 @@ class UCMLayerWiseConnector(UCMDirectConnector):
         metadata = self._get_connector_metadata()
         for request_id, request in metadata.request_meta.items():
             if len(request.load_block_ids[0]) == 0:
-                _log_pd_sync_load_result(metadata, request_id, skipped=True)
+                _report_pd_load_result(self, metadata, request_id, skipped=True)
                 continue
 
             self.need_load = True
@@ -3369,11 +3389,11 @@ class UCMLayerWiseConnector(UCMDirectConnector):
                 self._failure_req_ids.add(request_id)
             else:
                 if (
-                    request_id in getattr(metadata, "pd_sync_load_req_ids", ())
+                    request_id in getattr(metadata, "pd_handoff_req_ids", ())
                     and current_layer_id == self.layer_ids[-1]
                     and request_id not in self._failure_req_ids
                 ):
-                    _log_pd_sync_load_result(metadata, request_id)
+                    _report_pd_load_result(self, metadata, request_id)
                 self._layerwise_load_bytes += (
                     len(metadata.request_meta[request_id].load_block_ids[0])
                     * self.kv_cache_layout.shard_size
@@ -3821,6 +3841,8 @@ class UCMLiteConnector(KVConnectorBase_V1):
 
 
 class UCMConnector(KVConnectorBase_V1, SupportsHMA):
+    _pd_handoff: PDHandoffMetrics | None = None
+
     @classmethod
     def requires_piecewise_for_cudagraph(cls, extra_config: dict[str, Any]) -> bool:
         from ucm.integration.vllm.inference_duration_monitor_connector import (
@@ -3846,9 +3868,6 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
         # PD-decode 等待兜底：记录每个请求首次进入等待的时间，超时后放弃等待、
         # 回退到 decode 本地 prefill，避免对端始终不写 KV 时请求无限 defer。
         self._pd_wait_since: dict[str, float] = {}
-        self.pd_wait_timeout_s = float(
-            self.launch_config.get("pd_wait_timeout_s", 30.0)
-        )
         vllm_cpu_affinity = os.getenv("VLLM_CPU_AFFINITY")
         if enable_ucm_patch is None or vllm_cpu_affinity is None:
             logger.warning(
@@ -3888,6 +3907,9 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
         ucm_config = Config(vllm_config.kv_transfer_config)
         self.engine_id = vllm_config.kv_transfer_config.engine_id.rsplit("_dp", 1)[0]
         self.launch_config = ucm_config.get_config()
+        self.pd_wait_timeout_s = float(
+            self.launch_config.get("pd_wait_timeout_s", 30.0)
+        )
         _apply_cuda_indexer_io_config(
             self.launch_config,
             kv_cache_config,
@@ -3901,6 +3923,8 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
         if role == KVConnectorRole.WORKER and self._worker_rank == 0:
             logger.info(f"UCM worker rank 0 KV cache config: {kv_cache_config!r}")
         self._setup_ucm_metrics(vllm_config, role)
+        if role == KVConnectorRole.SCHEDULER and self._metrics_dispatcher is not None:
+            self._pd_handoff = PDHandoffMetrics(ucmmetrics.update_stats)
         logger.info(f"self.launch_config: {self.launch_config}")
 
         use_layerwise = (
@@ -4156,11 +4180,14 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
             the number of tokens that can be loaded from the
             external KV cache beyond what is already computed.
         """
+        params = getattr(request, "kv_transfer_params", None) or {}
+        handoff = self._pd_handoff
+        if params.get("do_remote_prefill") and handoff is not None:
+            handoff.start_lookup(request.request_id, params)
         external_hit_tokens, need_load = self.connector.get_num_new_matched_tokens(
             request, num_computed_tokens
         )
 
-        params = getattr(request, "kv_transfer_params", None) or {}
         if params.get("do_remote_prefill"):
             matched_tokens = num_computed_tokens + (external_hit_tokens or 0)
             remaining_tokens = request.num_prompt_tokens - matched_tokens
@@ -4168,11 +4195,9 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
             if remaining_tokens >= self.get_block_size():
                 # 超时兜底：prefill 未写入 / 命中不足 / 请求被取消时，不能让
                 # 请求永久停留在 deferred_waiting，超时后交给 decode 本地计算。
-                _wait_since = getattr(self, "_pd_wait_since", None)
-                if _wait_since is None:
-                    _wait_since = self._pd_wait_since = {}
-                t0 = _wait_since.setdefault(request.request_id, time.monotonic())
-                waited = time.monotonic() - t0
+                now = time.monotonic()
+                started = self._pd_wait_since.get(request.request_id)
+                waited = now - started if started is not None else 0.0
                 if waited >= getattr(self, "pd_wait_timeout_s", 30.0):
                     logger.warning(
                         "PD wait timeout after %.1fs, fallback to local prefill: "
@@ -4182,20 +4207,39 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
                         remaining_tokens,
                         external_hit_tokens,
                     )
-                    _wait_since.pop(request.request_id, None)
+                    self._end_pd_visibility_wait(request.request_id, "timeout", now)
+                    if handoff is not None:
+                        handoff.outcome(request.request_id, "timeout")
                     return 0, False
+                if started is None:
+                    self._pd_wait_since[request.request_id] = now
+                    if handoff is not None:
+                        handoff.waiting_changed(len(self._pd_wait_since))
                 return None, False
-            _wait_since = getattr(self, "_pd_wait_since", None)
-            if _wait_since is not None:
-                _wait_since.pop(request.request_id, None)
+            external = (external_hit_tokens or 0) > 0
+            self._end_pd_visibility_wait(
+                request.request_id, "external_hit" if external else "no_external_load"
+            )
+            if handoff is not None and external:
+                handoff.visible(request.request_id)
 
         self._record_prefix_cache_token_metrics(
             request,
             num_computed_tokens,
             external_hit_tokens,
         )
-        logger.info("********** Go ***********")
         return external_hit_tokens, need_load
+
+    def _end_pd_visibility_wait(
+        self, request_id: str, reason: str, now: float | None = None
+    ) -> None:
+        waiting = getattr(self, "_pd_wait_since", None)
+        if not waiting:
+            return
+        started = waiting.pop(request_id, None)
+        if started is not None and self._pd_handoff is not None:
+            ended = time.monotonic() if now is None else now
+            self._pd_handoff.end_defer(reason, ended - started, len(waiting))
 
     def _record_prefix_cache_token_metrics(
         self,
@@ -4233,8 +4277,19 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
         """
         self.connector.update_state_after_alloc(request, blocks, num_external_tokens)
         params = getattr(request, "kv_transfer_params", None)
-        if num_external_tokens > 0 and params and params.get("do_remote_prefill"):
-            self._pd_loads_this_step.add(request.request_id)
+        if params and params.get("do_remote_prefill"):
+            # A resumed request can go straight to allocation without another lookup.
+            self._end_pd_visibility_wait(
+                request.request_id,
+                "external_hit" if num_external_tokens > 0 else "no_external_load",
+            )
+            handoff = self._pd_handoff
+            if handoff is not None:
+                handoff.register(request.request_id, params)
+                if num_external_tokens > 0:
+                    self._pd_loads_this_step.add(request.request_id)
+                else:
+                    handoff.outcome(request.request_id, "no_external_load")
 
     @_record_connector_interface_duration
     def register_kv_caches(self, kv_caches: dict[str, torch.Tensor]):
@@ -4261,19 +4316,33 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
             scheduler_output (SchedulerOutput): the scheduler output object.
         """
         metadata = self.connector.build_connector_meta(scheduler_output)
-        if hasattr(metadata, "pd_sync_load_req_ids"):
-            for request_id in self._pd_loads_this_step:
-                dispatch = metadata.request_meta.get(request_id)
-                if dispatch is not None and not dispatch.load_async:
-                    metadata.pd_sync_load_req_ids.add(request_id)
-            if metadata.pd_sync_load_req_ids:
-                # Only workers of the replica serving this request report. DCP reuses TP ranks.
-                parallel = self._vllm_config.parallel_config
-                metadata.pd_sync_load_workers = (
-                    parallel.tensor_parallel_size
-                    * parallel.pipeline_parallel_size
-                    * getattr(parallel, "prefill_context_parallel_size", 1)
-                )
+        handoff = self._pd_handoff
+        if getattr(self, "_pd_wait_since", None):
+            for request_id in scheduler_output.finished_req_ids:
+                self._end_pd_visibility_wait(request_id, "other")
+            for request_id in scheduler_output.preempted_req_ids or ():
+                self._end_pd_visibility_wait(request_id, "other")
+        if handoff is None:
+            return metadata
+        # A one-token D request can finish before update_connector_output
+        # processes that same step. Retire any missing worker reports here.
+        for request_id in scheduler_output.finished_req_ids:
+            handoff.retire(request_id)
+        for request_id in scheduler_output.preempted_req_ids or ():
+            handoff.preempt(request_id)
+        if self._pd_loads_this_step and hasattr(metadata, "pd_handoff_req_ids"):
+            # Only this replica reports. DCP reuses TP ranks.
+            parallel = self._vllm_config.parallel_config
+            workers = (
+                parallel.tensor_parallel_size
+                * parallel.pipeline_parallel_size
+                * getattr(parallel, "prefill_context_parallel_size", 1)
+            )
+            for request_id in self._pd_loads_this_step.intersection(
+                metadata.request_meta
+            ):
+                if handoff.expect_workers(request_id, workers):
+                    metadata.pd_handoff_req_ids.add(request_id)
         self._pd_loads_this_step.clear()
         return metadata
 
@@ -4368,18 +4437,55 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
         """
         self.connector.wait_for_save()
 
+    def _finish_request(
+        self, request: "Request", block_ids, finish
+    ) -> tuple[bool, dict[str, object] | None]:
+        """Timestamp the P handoff before delegating block release to the connector."""
+        params = getattr(request, "kv_transfer_params", None) or {}
+        prefill_done_ns = _record_pd_prefill_done(request, params)
+        handoff = self._pd_handoff
+        status = getattr(request, "status", None)
+        cancelled = status is not None and status == getattr(
+            RequestStatus, "FINISHED_ABORTED", None
+        )
+        self._end_pd_visibility_wait(
+            request.request_id, "cancelled" if cancelled else "other"
+        )
+        if handoff is not None:
+            if params.get("do_remote_prefill"):
+                if cancelled:
+                    handoff.register(request.request_id, params)
+                    handoff.outcome(request.request_id, "cancelled")
+                elif status in (
+                    getattr(RequestStatus, "FINISHED_ERROR", None),
+                    getattr(RequestStatus, "FINISHED_IGNORED", None),
+                ):
+                    handoff.register(request.request_id, params)
+                    handoff.outcome(request.request_id, "failed")
+            handoff.request_finished(request.request_id)
+
+        result = finish(request, block_ids)
+        if prefill_done_ns is None:
+            return result
+        delay_free, transfer_params = result
+        return delay_free, {
+            **(transfer_params or {}),
+            "pd_prefill_done_unix_ns": prefill_done_ns,
+        }
+
     @_record_connector_interface_duration
     def request_finished_all_groups(
         self,
         request: "Request",
         block_ids: tuple[list[int], ...],
     ) -> tuple[bool, dict[str, object] | None]:
-        _log_pd_prefill_done(request)
         if isinstance(self.connector, SupportsHMA):
-            return self.connector.request_finished_all_groups(request, block_ids)
-        if block_ids:
-            return self.connector.request_finished(request, block_ids[0])
-        return self.connector.request_finished(request, [])
+            return self._finish_request(
+                request, block_ids, self.connector.request_finished_all_groups
+            )
+        return self._finish_request(
+            request, block_ids[0] if block_ids else [], self.connector.request_finished
+        )
 
     @_record_connector_interface_duration
     def request_finished(
@@ -4387,8 +4493,7 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
         request: "Request",
         block_ids: list[int],
     ) -> tuple[bool, dict[str, object] | None]:
-        _log_pd_prefill_done(request)
-        return self.connector.request_finished(request, block_ids)
+        return self._finish_request(request, block_ids, self.connector.request_finished)
 
     @_record_connector_interface_duration
     def get_finished(
@@ -4401,6 +4506,9 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
         return self.connector.get_transfer_results(finished_req_ids)
 
     def shutdown(self) -> None:
+        for request_id in tuple(getattr(self, "_pd_wait_since", ())):
+            self._end_pd_visibility_wait(request_id, "other")
+        self._pd_handoff = None
         shutdown = getattr(self.connector, "shutdown", None)
         if shutdown is not None:
             shutdown()
@@ -4411,6 +4519,14 @@ class UCMConnector(KVConnectorBase_V1, SupportsHMA):
 
     @_record_connector_interface_duration
     def update_connector_output(self, connector_output: KVConnectorOutput):
+        handoff = self._pd_handoff
+        meta = getattr(connector_output, "kv_connector_worker_meta", None)
+        if handoff is not None and isinstance(meta, UCMWorkerMetadata):
+            for request_id in meta.load_failed_reqs:
+                self._end_pd_visibility_wait(request_id, "other")
+                handoff.outcome(request_id, "failed")
+            for request_id, ready_by_rank in meta.pd_ready_by_request.items():
+                handoff.worker_report(request_id, ready_by_rank)
         return self.connector.update_connector_output(connector_output)
 
     @_record_connector_interface_duration

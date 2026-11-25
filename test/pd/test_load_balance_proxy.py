@@ -11,7 +11,6 @@ import time
 from contextlib import ExitStack, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -24,7 +23,6 @@ def send_through_proxy(
     backend,
     request_id="ucm-test",
     payload=None,
-    reports=None,
     ucm_pd=False,
 ):
     # The proxy also runs standalone on a host without the UCM engine libraries.
@@ -32,22 +30,11 @@ def send_through_proxy(
     import ucm_pd_disaggregation_example as proxy
 
     argv = ["proxy", "--ucm-pd"] if ucm_pd else ["proxy"]
-    if reports is not None:
-        argv += [
-            "--timing-backend",
-            "ucm-async" if ucm_pd else "mooncake",
-            "--prefiller-logs",
-            "p.log",
-            "--decoder-logs",
-            "d.log",
-        ]
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(proxy, "global_args", proxy.parse_args())
-    scheduler = proxy.SharedProxyScheduler([("prefill", 8000)], [("decode", 8000)])
-    if reports is not None:
-        scheduler._timing_collector = SimpleNamespace(
-            register=lambda key: None, finish=lambda key, report: reports.append(report)
-        )
+    scheduler = proxy.SharedProxyScheduler(
+        [("prefill", 8000)], [("decode", 8000)], backend="ucm" if ucm_pd else "mooncake"
+    )
     runtime = proxy.WorkerRuntime(scheduler)
     monkeypatch.setattr(proxy, "runtime", runtime)
 
@@ -119,8 +106,7 @@ def test_coalesced_usage_rewrite_preserves_other_sse_fields(monkeypatch):
     }
 
 
-def test_first_token_is_logged_once_across_recompute(monkeypatch, caplog):
-    caplog.set_level("INFO", logger="ucm_pd_disaggregation_example")
+def test_recompute_observes_one_logical_stream(monkeypatch):
     replies = iter([{"text": "one"}, {"text": "two"}])
     closed = []
 
@@ -133,7 +119,6 @@ def test_first_token_is_logged_once_across_recompute(monkeypatch, caplog):
             if choice["text"] == "one":
                 output = sse(choice)
                 yield sse({"delta": {"role": "assistant"}}) + output[:12]
-                assert not any("decode_first_token" in msg for msg in caplog.messages)
                 yield (
                     output[12:]
                     + sse({"text": "", "stop_reason": "recomputed"})
@@ -151,30 +136,41 @@ def test_first_token_is_logged_once_across_recompute(monkeypatch, caplog):
             return httpx.Response(200, json={})
         return httpx.Response(200, stream=Stream())
 
-    reports = []
-    response, _ = send_through_proxy(
-        monkeypatch, backend, payload={"prompt": "p", "stream": True}, reports=reports
+    response, scheduler = send_through_proxy(
+        monkeypatch, backend, payload={"prompt": "p", "stream": True}
     )
     assert "two" in response.text
     assert "obsolete" not in response.text and "recomputed" not in response.text
     assert response.content.count(b"[DONE]") == 1
-    assert sum("decode_first_token" in msg for msg in caplog.messages) == 1
-    assert len(reports) == 1 and reports[0]["recomputes"] == 1
-    assert reports[0]["status"] == "ok"
-    assert reports[0]["tpot_ms"] is None and reports[0]["ttft_ms"] is not None
+    assert (
+        b'pd_proxy_ttft_seconds_count{backend="mooncake",outcome="recomputed"} 1.0'
+        in scheduler.render_metrics()
+    )
 
 
 @pytest.mark.parametrize("ucm_pd", [False, True])
 def test_recompute_uses_only_current_handoff(monkeypatch, ucm_pd):
-    first_handoff = {"remote_block_ids": [7], "do_remote_prefill": False}
-    p_replies = iter([{"kv_transfer_params": first_handoff}, {}])
+    first_handoff = {
+        "remote_block_ids": [7],
+        "do_remote_prefill": False,
+        "pd_prefill_done_unix_ns": 101,
+    }
+    p_replies = iter(
+        [
+            {"kv_transfer_params": first_handoff},
+            {"kv_transfer_params": {"pd_prefill_done_unix_ns": 202}},
+            {},
+        ]
+    )
     d_bodies = []
 
     def backend(request):
         if request.url.host == "prefill":
+            prefill_params = json.loads(request.content)["kv_transfer_params"]
+            assert ("ucm_pd_relay" in prefill_params) == ucm_pd
             return httpx.Response(200, json=next(p_replies))
         d_bodies.append(json.loads(request.content))
-        stop = "recomputed" if len(d_bodies) == 1 else "stop"
+        stop = "recomputed" if len(d_bodies) < 3 else "stop"
         return httpx.Response(
             200,
             json={
@@ -185,19 +181,120 @@ def test_recompute_uses_only_current_handoff(monkeypatch, ucm_pd):
 
     body = {"prompt": "hello", "max_tokens": 8}
     if ucm_pd:
-        body["kv_transfer_params"] = {"client_hint": "keep"}
+        body["kv_transfer_params"] = {
+            "client_hint": "keep",
+            "pd_prefill_done_unix_ns": 999,
+        }
     response, _ = send_through_proxy(monkeypatch, backend, payload=body, ucm_pd=ucm_pd)
     response.raise_for_status()
-    first, second = d_bodies
-    role = {"do_remote_prefill": True} if ucm_pd else {}
-    assert first["kv_transfer_params"] == {**first_handoff, **role}
+    first, second, legacy = d_bodies
+    assert first["kv_transfer_params"] == {
+        "remote_block_ids": [7],
+        "do_remote_prefill": ucm_pd,
+        **({"pd_prefill_done_unix_ns": 101} if ucm_pd else {}),
+    }
     if ucm_pd:
         assert second["kv_transfer_params"] == {
+            "client_hint": "keep",
+            "do_remote_prefill": True,
+            "pd_prefill_done_unix_ns": 202,
+        }
+        assert legacy["kv_transfer_params"] == {
             "client_hint": "keep",
             "do_remote_prefill": True,
         }
     else:
         assert "kv_transfer_params" not in second
+        assert "kv_transfer_params" not in legacy
+
+
+@pytest.mark.parametrize(
+    "body,ucm_pd,forward_timestamp",
+    [
+        ({"prompt": ["first", "second"]}, True, False),
+        ({"prompt": [[1, 2], [3, 4]]}, False, False),
+        ({"messages": [{"role": "user", "content": "hi"}], "n": 2}, False, False),
+        ({"prompt": "hi", "best_of": 2}, True, False),
+        ({"prompt": [1, 2]}, True, True),
+        ({"prompt": [1, 2]}, False, False),
+    ],
+)
+def test_handoff_timestamp_requires_one_sequence(
+    monkeypatch, body, ucm_pd, forward_timestamp
+):
+    decode_params = []
+
+    def backend(request):
+        if request.url.host == "prefill":
+            params = json.loads(request.content)["kv_transfer_params"]
+            assert params.get("ucm_pd_relay", False) is forward_timestamp
+            handoff = {"pd_prefill_done_unix_ns": 123}
+            if not ucm_pd:
+                handoff["remote_request_id"] = "producer-child"
+            return httpx.Response(200, json={"kv_transfer_params": handoff})
+        decode_params.append(json.loads(request.content)["kv_transfer_params"])
+        return httpx.Response(
+            200, json={"choices": [{"text": "ok", "finish_reason": "stop"}]}
+        )
+
+    payload = {
+        **body,
+        "kv_transfer_params": {"client_hint": "keep", "pd_prefill_done_unix_ns": 999},
+    }
+    response, _ = send_through_proxy(
+        monkeypatch, backend, payload=payload, ucm_pd=ucm_pd
+    )
+    response.raise_for_status()
+    expected = (
+        {"do_remote_prefill": True, "client_hint": "keep"}
+        if ucm_pd
+        else {"remote_request_id": "producer-child"}
+    )
+    if forward_timestamp:
+        expected["pd_prefill_done_unix_ns"] = 123
+    assert decode_params == [expected]
+
+
+@pytest.mark.parametrize("choice", [{"text": "x"}, {"delta": {"role": "assistant"}}])
+def test_streaming_metrics_require_generated_output_for_ttft(monkeypatch, choice):
+    monkeypatch.syspath_prepend(str(PD))
+    import ucm_pd_disaggregation_example as proxy
+
+    def backend(request):
+        if request.url.host == "prefill":
+            return httpx.Response(200, json={})
+        return httpx.Response(200, content=sse(choice) + b"data: [DONE]\n\n")
+
+    response, _ = send_through_proxy(
+        monkeypatch,
+        backend,
+        request_id="private-request",
+        payload={"prompt": "p", "stream": True},
+        ucm_pd=True,
+    )
+    response.raise_for_status()
+
+    async def scrape():
+        async with httpx.AsyncClient(
+            base_url="http://proxy", transport=httpx.ASGITransport(app=proxy.app)
+        ) as client:
+            return await client.get("/metrics")
+
+    metrics = asyncio.run(scrape())
+    metrics.raise_for_status()
+    assert metrics.headers["content-type"].startswith("text/plain")
+    assert "private-request" not in metrics.text
+    for stage in (
+        "prefill_http",
+        "p_response_to_d_send",
+        "ttft",
+        "d_send_to_first_token",
+    ):
+        sample = (
+            f'pd_proxy_{stage}_seconds_count{{backend="ucm",outcome="success"}} 1.0'
+        )
+        expected = stage in ("prefill_http", "p_response_to_d_send") or "text" in choice
+        assert (sample in metrics.text) == expected
 
 
 def test_nonstream_usage_and_retry_have_no_first_token(monkeypatch):
@@ -218,25 +315,15 @@ def test_nonstream_usage_and_retry_have_no_first_token(monkeypatch):
             200, headers={"content-type": "application/json"}, stream=JsonBody()
         )
 
-    reports = []
-    response, _ = send_through_proxy(monkeypatch, backend, reports=reports)
+    response, scheduler = send_through_proxy(monkeypatch, backend)
     response.raise_for_status()
     assert response.json()["usage"]["prompt_tokens_details"]["cached_tokens"] == 0
-    (row,) = reports
-    assert row["status"] == "ok" and row["http_retries"] == 1
-    assert (row["prompt_tokens"], row["output_tokens"], row["count_source"]) == (
-        5,
-        2,
-        "usage",
-    )
+    assert len(attempts) == 2
+    samples = scheduler.render_metrics()
     assert (
-        row["ttft_ms"] is row["tpot_ms"] is row["p_response_to_first_token_ms"] is None
+        b'pd_proxy_requests_total{backend="mooncake",outcome="retried"} 1.0' in samples
     )
-    assert (
-        row["prefill_http_ms"] > 0
-        and row["decode_http_ms"] > 0
-        and row["output_tps"] > 0
-    )
+    assert b"pd_proxy_ttft_seconds_count" not in samples
 
 
 def test_failed_recompute_releases_both_reservations(monkeypatch):
@@ -261,55 +348,6 @@ def test_failed_recompute_releases_both_reservations(monkeypatch):
     assert scheduler.request_num == 0
     assert scheduler.prefillers["prefill:8000"].active_kv_cache == 0
     assert scheduler.decoders["decode:8000"].active_tokens == 0
-
-
-def test_per_request_rates_use_tokens_and_token_arrivals(monkeypatch):
-    monkeypatch.syspath_prepend(str(PD))
-    import ucm_pd_disaggregation_example as proxy
-
-    metric = proxy.RequestTiming(
-        "/completions", {"request_id": "r", "stream": True}, 10
-    )
-    metric.prefill_response({"usage": {"prompt_tokens": 20}}, 10.1)
-    metric.first_d_send = 10.15
-    metric.observe({"choices": [{"token_ids": [10, 11]}]}, 10.25, "token_ids")
-    metric.observe(
-        {"choices": [{"token_ids": [12, 13, 14], "finish_reason": "stop"}]},
-        10.75,
-        "token_ids",
-    )
-    monkeypatch.setattr(proxy.time, "perf_counter", lambda: 11)
-    row = metric.summary("ok")
-    assert row["output_tokens"] == 5 and row["count_source"] == "token_ids"
-    assert row["ttft_ms"] == 250 and row[
-        "p_response_to_first_token_ms"
-    ] == pytest.approx(150)
-    assert row["tpot_ms"] == 125 and row["decode_tps"] == 8 and row["output_tps"] == 5
-    metric.recomputes = 1
-    assert metric.summary("ok")["tpot_ms"] is None
-
-
-def test_text_events_without_usage_do_not_become_token_counts(monkeypatch):
-    monkeypatch.syspath_prepend(str(PD))
-    from ucm_pd_disaggregation_example import RequestTiming
-
-    metric = RequestTiming("/completions", {"request_id": "r", "stream": True}, 1.0)
-    metric.prefill_response({}, 1.05)
-    metric.first_d_send = 1.1
-    metric.observe({"choices": [], "usage": {"completion_tokens": 0}}, 1.12)
-    metric.observe(
-        {"choices": [{"text": "several words", "finish_reason": "stop"}]}, 1.2, "text"
-    )
-    row = metric.summary("ok")
-    assert row["ttft_ms"] == pytest.approx(200)
-    assert row["output_tokens"] is row["tpot_ms"] is row["output_tps"] is None
-    metric.observe({"choices": [{"stop_reason": "recomputed"}]}, 1.3)
-    assert metric.summary("ok")["status"] == "unresolved_recompute"
-
-
-def append(path, line):
-    with path.open("a") as out:
-        print(line, file=out)
 
 
 @contextmanager
@@ -429,71 +467,86 @@ def test_sync_timing_requires_every_worker_but_uses_only_actual_load_times(monke
     assert proxy.handoff_duration(start, legacy, {4}) == (2.0, "observed")
 
 
-@pytest.mark.parametrize(
-    "mode,workers", [("mooncake", 1), ("ucm-async", 1), ("ucm-sync", 2)]
-)
-def test_live_proxy_joins_late_engine_logs_across_rounds(tmp_path, mode, workers):
-    p_log, d_log, proxy_log = (
-        tmp_path / name for name in ("p.log", "d.log", "proxy.log")
+def test_offline_comparison_accepts_only_mooncake_logs(tmp_path):
+    prefill, decode = tmp_path / "p.log", tmp_path / "d.log"
+    prefill.write_text(
+        "1790000000.010 INFO Delaying free of 2 blocks for request req\n"
     )
-    p_log.touch()
-    d_log.touch()
-    p_ns = 1_789_948_800_000_000_000  # 2026-09-21 00:00:00 UTC
+    decode.write_text(
+        "1790000000.025 DEBUG Finished recving KV transfer for request req\n"
+    )
+    command = [
+        sys.executable,
+        "-I",
+        "-S",
+        PD / "ucm_pd_disaggregation_example.py",
+        "compare-handoff",
+        "--mooncake-p",
+        prefill,
+        "--mooncake-d",
+        decode,
+    ]
+    result = subprocess.run(command, check=True, capture_output=True, text=True)
+    assert list(csv.DictReader(result.stdout.splitlines())) == [
+        {
+            "request_id": "req",
+            "mooncake_scheduler_ms": "15.000",
+            "mooncake_status": "observed",
+        }
+    ]
+    partial = subprocess.run(
+        command + ["--ucm-d", decode], check=False, capture_output=True, text=True
+    )
+    assert partial.returncode != 0
+    assert "--ucm-p" in partial.stderr
 
-    def scheduler_event(ms, message):
-        return json.dumps(
-            {"asctime": f"2026-09-21 00:00:00,{ms:03}", "message": message}
-        )
+
+@pytest.mark.parametrize("workers,backend", [(1, "mooncake"), (2, "ucm")])
+def test_http_workers_expose_one_registry_and_release_cancelled_requests(
+    tmp_path, workers, backend
+):
+    holding_prefill = threading.Event()
+    release_prefill = threading.Event()
 
     class Engine(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
         def log_message(self, *args):
             pass
 
+        def respond(self, body, content_type="application/json"):
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            # Each worker keeps its own HTTP connection pool to this engine.
+            self.respond(json.dumps({"peer_port": self.client_address[1]}).encode())
+
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            rid = "chatcmpl-" + self.headers["X-Request-Id"]
+            if self.headers["X-Request-Id"] == "cancel":
+                holding_prefill.set()
+                release_prefill.wait(10)
+                self.close_connection = True
+                return
             if body["max_tokens"] == 1:
-                assert body["kv_transfer_params"]["do_remote_decode"]
-                key = rid + "-aaaabbbb"
-                if mode == "mooncake":
-                    append(
-                        p_log,
-                        scheduler_event(
-                            0, f"Delaying free of 3 blocks for request {key}"
-                        ),
-                    )
-                    reply = {"kv_transfer_params": {"remote_request_id": key}}
-                else:
-                    append(p_log, f"ucm_pd_prefill_done request_id={key} ts_ns={p_ns}")
-                    reply = {}
-                content = json.dumps(reply).encode()
-                media_type = "application/json"
+                self.respond(b'{"kv_transfer_params":{"remote_request_id":"prefill"}}')
             else:
-                if mode == "mooncake":
-                    assert body["kv_transfer_params"] == {
-                        "remote_request_id": rid + "-aaaabbbb"
-                    }
-                else:
-                    assert body["kv_transfer_params"] == {"do_remote_prefill": True}
-                    if mode == "ucm-sync":
-                        append(
-                            d_log,
-                            f"ucm_pd_sync_load_done request_id={rid}-bbbbcccc rank=0 ts_ns={p_ns + 4_000_000} workers=2",
-                        )
-                content = b'data: {"choices":[{"delta":{"content":"X"},"token_ids":[1]}]}\n\ndata: [DONE]\n\n'
-                media_type = "text/event-stream"
-            self.send_response(200)
-            self.send_header("Content-Type", media_type)
-            self.end_headers()
-            self.wfile.write(content)
+                self.respond(
+                    sse({"text": "x", "finish_reason": "stop"}) + b"data: [DONE]\n\n",
+                    "text/event-stream",
+                )
 
     with ExitStack() as stack:
         engine_port = stack.enter_context(running_backend(Engine))
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
-        console = tmp_path / "console.log"
-        cmd = [
+        url = f"http://127.0.0.1:{port}"
+        command = [
             sys.executable,
             PD / "ucm_pd_disaggregation_example.py",
             "--host",
@@ -502,120 +555,93 @@ def test_live_proxy_joins_late_engine_logs_across_rounds(tmp_path, mode, workers
             str(port),
             "--workers",
             str(workers),
+            "--prefiller-hosts",
+            "127.0.0.1",
             "--prefiller-ports",
             str(engine_port),
+            "--decoder-hosts",
+            "127.0.0.1",
             "--decoder-ports",
             str(engine_port),
-            "--proxy-log",
-            proxy_log,
-            "--prefiller-logs",
-            p_log,
-            "--decoder-logs",
-            d_log,
         ]
-        if mode != "mooncake":
-            config = tmp_path / "pd.yaml"
-            async_load = "true" if mode == "ucm-async" else "false"
-            config.write_text(f"use_request_async_load: {async_load}\n")
-            cmd += ["--ucm-config", config]
-        logfile = stack.enter_context(console.open("w"))
+        if backend == "ucm":
+            config = tmp_path / "ucm.yaml"
+            config.write_text("use_request_async_load: false\n")
+            command += ["--ucm-config", config]
+        console = tmp_path / "console.log"
+        log = stack.enter_context(console.open("w"))
         proc = subprocess.Popen(
-            cmd, stdout=logfile, stderr=subprocess.STDOUT, start_new_session=True
+            command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
         )
         try:
-            client = stack.enter_context(
-                httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=4)
-            )
-            for _ in range(150):
+            clients = {}
+            deadline = time.monotonic() + 15
+            while len(clients) < workers:
                 assert proc.poll() is None, console.read_text()
+                assert time.monotonic() < deadline, console.read_text()
+                candidate = httpx.Client(base_url=url, timeout=4, trust_env=False)
                 try:
-                    if client.get("/healthcheck").is_success:
-                        break
+                    identity = candidate.get("/v1/models")
+                    identity.raise_for_status()
+                    port_id = identity.json()["peer_port"]
+                    if port_id not in clients:
+                        clients[port_id] = candidate
+                        stack.callback(candidate.close)
+                        continue
                 except httpx.ConnectError:
-                    pass
-                time.sleep(0.05)
-            else:
-                pytest.fail(console.read_text())
+                    time.sleep(0.05)
+                finally:
+                    if candidate not in clients.values():
+                        candidate.close()
 
-            archive = tmp_path / "round1.log"
-            for rid in ("first", "second"):
+            initial = next(iter(clients.values())).get("/metrics")
+            initial.raise_for_status()
+            for outcome in (
+                "success", "retried", "recomputed", "cancelled", "upstream_error",
+                "interrupted", "unresolved_recompute",
+            ):
+                assert (
+                    f'pd_proxy_requests_total{{backend="{backend}",outcome="{outcome}"}} 0.0'
+                    in initial.text
+                )
+
+            for port_id, client in clients.items():
                 response = client.post(
-                    "/v1/chat/completions",
-                    headers={"X-Request-Id": rid},
-                    json={
-                        "messages": [{"role": "user", "content": "hi"}],
-                        "stream": True,
-                        "max_tokens": 8,
-                    },
+                    "/v1/completions",
+                    json={"prompt": "p", "max_tokens": 2, "stream": True},
                 )
                 response.raise_for_status()
-                assert b"[DONE]" in response.content
-                # The last D event becomes visible only after HTTP has finished.
-                key = f"chatcmpl-{rid}-bbbbcccc"
-                if mode == "ucm-sync":
-                    append(
-                        d_log,
-                        f"ucm_pd_sync_load_done request_id={key} rank=1 ts_ns={p_ns + 14_000_000} workers=2",
-                    )
-                else:
-                    append(
-                        d_log,
-                        scheduler_event(
-                            14, f"Finished recving KV transfer for request {key}"
-                        ),
+                assert response.content.count(b"[DONE]") == 1
+                assert client.get("/v1/models").json()["peer_port"] == port_id
+            for client in clients.values():
+                metrics = client.get("/metrics")
+                metrics.raise_for_status()
+                for metric in (
+                    "pd_proxy_requests_total",
+                    "pd_proxy_ttft_seconds_count",
+                ):
+                    assert (
+                        f'{metric}{{backend="{backend}",outcome="success"}} {workers}.0'
+                        in metrics.text
                     )
 
-                for _ in range(100):
-                    if (
-                        proxy_log.exists()
-                        and f"pd_request_timing request_id={rid} "
-                        in proxy_log.read_text()
-                    ):
-                        break
-                    time.sleep(0.05)
-                else:
-                    pytest.fail(f"No timing row for {rid}.\n{console.read_text()}")
-                (line,) = [
-                    s
-                    for s in proxy_log.read_text().splitlines()
-                    if "pd_request_timing " in s
-                ]
-                fields = dict(
-                    item.split("=", 1)
-                    for item in line.split("pd_request_timing ")[1].split()
+            # Disconnect while P still owns a reservation, before D has been selected.
+            body = b'{"prompt":"cancel","max_tokens":2}'
+            with socket.create_connection(("127.0.0.1", port), timeout=4) as sock:
+                sock.sendall(
+                    f"POST /v1/completions HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Request-Id: cancel\r\n"
+                    f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n".encode()
+                    + body
                 )
-                assert fields["request_id"] == rid and fields["backend"] == mode
-                assert (
-                    fields["kv_handoff_ms"] == "14.000"
-                    and fields["kv_status"] == "observed"
-                )
-                assert (
-                    float(fields["p_response_to_first_token_ms"]) > 0
-                    and float(fields["ttft_ms"]) > 0
-                )
-
-                if rid == "first":
-                    subprocess.run(
-                        [
-                            sys.executable,
-                            PD / "summarize_benchmark.py",
-                            proxy_log,
-                            "--expected-requests",
-                            "1",
-                            "--archive",
-                            archive,
-                        ],
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    )
-                    d_log.rename(tmp_path / "d.log.1")
-                    d_log.touch()
-            assert (
-                "request_id=first " in archive.read_text()
-                and "request_id=second " not in archive.read_text()
-            )
+                assert holding_prefill.wait(4)
+            deadline = time.monotonic() + 4
+            cancelled = f'pd_proxy_requests_total{{backend="{backend}",outcome="cancelled"}} 1.0'
+            while cancelled not in client.get("/metrics").text:
+                assert time.monotonic() < deadline, console.read_text()
+                time.sleep(0.05)
+            assert client.get("/healthcheck").json()["request_num"] == 0
         finally:
+            release_prefill.set()
             if proc.poll() is None:
                 os.killpg(proc.pid, signal.SIGTERM)
             try:

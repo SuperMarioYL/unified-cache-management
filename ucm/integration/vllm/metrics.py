@@ -5,6 +5,7 @@ from typing import Any
 
 from vllm.config import VllmConfig
 
+from ucm.integration.vllm.pd_handoff_metrics import PD_SCHEDULER_METRICS
 from ucm.logger import init_logger
 from ucm.metrics_config import (
     MetricDefinition,
@@ -107,7 +108,12 @@ class UCMConnectorStats(KVConnectorStats):
             value_float = stats._finite(value)
             if value_float is None:
                 continue
-            stats.data["gauges_by_rank"].setdefault(rank, {})[metric_name] = value_float
+            # In UniProc a worker can drain this scheduler-owned gauge. Keep
+            # its current value on one series even when the next drainer changes.
+            owner = "scheduler" if metric_name in PD_SCHEDULER_METRICS else rank
+            stats.data["gauges_by_rank"].setdefault(owner, {})[
+                metric_name
+            ] = value_float
 
         for metric_name, value in histogram_stats.items():
             definition = _resolve(metric_name)
@@ -116,7 +122,8 @@ class UCMConnectorStats(KVConnectorStats):
             histogram = _histogram_snapshot(value)
             if histogram is None:
                 continue
-            stats.data["histograms_by_rank"].setdefault(rank, {})[
+            owner = "scheduler" if metric_name in PD_SCHEDULER_METRICS else rank
+            stats.data["histograms_by_rank"].setdefault(owner, {})[
                 metric_name
             ] = histogram
 
@@ -244,6 +251,12 @@ if UCM_HAS_PROM_METRICS:
                     metric_labelnames,
                 )
                 counts[definition.metric_type] += 1
+            # Emit a real zero baseline before the first engine step. Binding a
+            # histogram child does not contribute a latency observation.
+            for name in PD_SCHEDULER_METRICS.intersection(self._metrics_by_name):
+                for engine_idx in self._engine_labelvalues:
+                    self._metric(engine_idx, "scheduler", name)
+
             logger.info(
                 f"UCM metrics vllm_connector path enabled: "
                 f"total={len(definitions)}, counters={counts['counter']}, "

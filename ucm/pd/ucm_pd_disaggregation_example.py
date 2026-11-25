@@ -19,7 +19,7 @@
 # Prerequisites:
 # - Python 3.10+
 # - Install dependencies:
-#     pip install fastapi<0.124.0 httpx uvicorn vllm
+#     pip install 'fastapi<0.124.0' httpx uvicorn pyyaml prometheus-client
 #
 # Step 1: Start Your Backend Servers
 # ----------------------------------
@@ -120,14 +120,12 @@ import asyncio
 import base64
 import csv
 import functools
-import glob
 import hashlib
 import heapq
 import ipaddress
 import json
 import logging
 import logging.config
-import math
 import os
 import re
 import sys
@@ -146,12 +144,12 @@ from enum import Enum
 from logging.handlers import QueueHandler, QueueListener, WatchedFileHandler
 from multiprocessing.managers import BaseManager
 from pathlib import Path
-from queue import Empty, Full, Queue
+from queue import Full, Queue
 from typing import Any, cast
 
 # ---- UCM extensions: protocol, observations and offline CLI ----
 
-# Engine log events shared by the live collector and the offline CSV comparison.
+# Engine log formats used by the offline CSV comparison.
 
 MOONCAKE_PREFILL = re.compile(r"Delaying free of \d+ blocks for request (?P<rid>\S+)")
 SCHEDULER_RECV = re.compile(r"Finished recving KV transfer for request (?P<rid>\S+)")
@@ -185,7 +183,7 @@ def parse_handoff_event(line, pattern, exact_ids=False):
     """Return the normalized engine request key and event, or None for unrelated lines."""
     asctime = None
     if line.lstrip().startswith("{"):
-        # Avoid JSON-decoding unrelated scheduler DEBUG traffic in the live reader.
+        # Skip unrelated scheduler DEBUG events before decoding their JSON payload.
         if not pattern.search(line) and not FAILED_LOAD.search(line):
             return None
         try:
@@ -271,14 +269,20 @@ def handoff_duration(starts, ends, ranks=None):
 
 
 def compare_handoff(argv: list[str]) -> None:
-    """Compare final Mooncake and UCM engine logs by request ID and write CSV to stdout."""
+    """Report stock Mooncake handoff times from engine logs, optionally alongside archived UCM timings."""
     parser = argparse.ArgumentParser(
         prog=f"{Path(sys.argv[0]).name} compare-handoff",
         description=compare_handoff.__doc__,
         epilog="Supply each log once. Add --ucm-sync for synchronous UCM logs.",
     )
     for option in ("mooncake-p", "mooncake-d", "ucm-p", "ucm-d"):
-        parser.add_argument(f"--{option}", nargs="+", required=True, type=Path)
+        parser.add_argument(
+            f"--{option}",
+            nargs="+",
+            required=option.startswith("mooncake"),
+            type=Path,
+            default=[],
+        )
     parser.add_argument(
         "--ucm-sync", action="store_true", help="Compare synchronous UCM loads."
     )
@@ -297,6 +301,10 @@ def compare_handoff(argv: list[str]) -> None:
     args = parser.parse_args(argv)
     ranks = set(args.ucm_sync_ranks) if args.ucm_sync_ranks else None
     sync = args.ucm_sync or ranks is not None
+    if bool(args.ucm_p) != bool(args.ucm_d):
+        parser.error("supply --ucm-p and --ucm-d together to compare archived UCM logs")
+    if sync and not args.ucm_p:
+        parser.error("--ucm-sync and --ucm-sync-ranks require UCM logs")
     try:
         mp = read_handoff_events(args.mooncake_p, MOONCAKE_PREFILL, args.exact_ids)
         md = read_handoff_events(args.mooncake_d, SCHEDULER_RECV, args.exact_ids)
@@ -311,6 +319,12 @@ def compare_handoff(argv: list[str]) -> None:
     if not ids:
         parser.error("no handoff events found in the supplied logs")
     writer = csv.writer(sys.stdout)
+    if not args.ucm_p:
+        writer.writerow(["request_id", "mooncake_scheduler_ms", "mooncake_status"])
+        for rid in sorted(ids):
+            ms, status = handoff_duration(mp[rid], md[rid])
+            writer.writerow([rid, f"{ms:.3f}" if ms is not None else "", status])
+        return
     ucm_column = "ucm_sync_rank_ms" if sync else "ucm_scheduler_ms"
     writer.writerow(
         [
@@ -341,14 +355,8 @@ if __name__ == "__main__" and sys.argv[1:2] == ["compare-handoff"]:
     raise SystemExit(compare_handoff(sys.argv[2:]))
 
 
-# Online request timing and shared-log collection.
-
-# A stalled filesystem or a lost worker must not grow the serving process indefinitely.
-MAX_PENDING_HANDOFFS = 65536
-
-
-def ucm_timing_backend(config_path: str) -> str:
-    """Select timing from the Decode engine's UCM YAML."""
+def ucm_config_path(config_path: str) -> str:
+    """Validate the Decode engine's UCM YAML supplied by an existing launcher."""
     try:
         import yaml
     except ImportError as exc:
@@ -366,7 +374,7 @@ def ucm_timing_backend(config_path: str) -> str:
         raise argparse.ArgumentTypeError(
             f"{config_path}: use_request_async_load must be a YAML boolean"
         )
-    return "ucm-async" if async_load else "ucm-sync"
+    return config_path
 
 
 def parse_pd_options(parser: argparse.ArgumentParser) -> argparse.Namespace:
@@ -376,7 +384,7 @@ def parse_pd_options(parser: argparse.ArgumentParser) -> argparse.Namespace:
     parser.epilog = (
         "Run '%(prog)s compare-handoff --help' for offline comparison of engine logs."
     )
-    group = parser.add_argument_group("P/D handoff and timing")
+    group = parser.add_argument_group("P/D handoff")
     group.add_argument(
         "--ucm-pd",
         action="store_true",
@@ -387,78 +395,15 @@ def parse_pd_options(parser: argparse.ArgumentParser) -> argparse.Namespace:
         metavar="PATH",
         help="Also write proxy logs to a file that reopens after rotation.",
     )
-    timing = group.add_mutually_exclusive_group()
-    timing.add_argument(
-        "--timing-backend",
-        choices=["mooncake", "ucm-async", "ucm-sync"],
-        help="Select timing explicitly. Shared engine logs default to Mooncake timing.",
-    )
-    timing.add_argument(
+    group.add_argument(
         "--ucm-config",
-        type=ucm_timing_backend,
-        dest="ucm_config_backend",
+        type=ucm_config_path,
         metavar="PATH",
-        help="Use UCM handoff and select timing from the Decode engine's UCM YAML.",
-    )
-    group.add_argument(
-        "--prefiller-logs",
-        "--timing-p-logs",
-        nargs="+",
-        metavar="GLOB",
-        help="Read timing events from these prefiller log files or glob patterns.",
-    )
-    group.add_argument(
-        "--decoder-logs",
-        "--timing-d-logs",
-        nargs="+",
-        metavar="GLOB",
-        help="Read timing events from these decoder log files or glob patterns.",
-    )
-    group.add_argument(
-        "--timing-sync-ranks",
-        nargs="+",
-        type=int,
-        metavar="RANK",
-        help="Expected loading ranks for legacy synchronous UCM logs.",
-    )
-    group.add_argument(
-        "--timing-exact-ids",
-        action="store_true",
-        help="Engine request-ID randomization is disabled.",
-    )
-    group.add_argument(
-        "--timing-log-wait",
-        type=float,
-        default=30,
-        metavar="SECONDS",
-        help="Maximum wait for late engine logs after a request finishes.",
+        help="Use UCM shared-store handoff with the Decode engine's UCM YAML.",
     )
     args = parser.parse_args()
-    if args.ucm_config_backend:
+    if args.ucm_config is not None:
         args.ucm_pd = True
-        args.timing_backend = args.ucm_config_backend
-    if not (
-        args.timing_backend
-        or args.prefiller_logs
-        or args.decoder_logs
-        or args.timing_sync_ranks
-        or args.timing_exact_ids
-    ):
-        return args
-    if not args.prefiller_logs or not args.decoder_logs:
-        parser.error("shared-log timing needs --prefiller-logs and --decoder-logs")
-    if args.timing_backend is None:
-        args.timing_backend = "mooncake"
-    if args.ucm_pd and args.timing_backend == "mooncake":
-        parser.error(
-            "for UCM timing, supply --ucm-config or select --timing-backend ucm-async or ucm-sync"
-        )
-    if not args.ucm_pd and args.timing_backend != "mooncake":
-        parser.error("add --ucm-pd to use UCM handoff with UCM timings")
-    if args.timing_sync_ranks and args.timing_backend != "ucm-sync":
-        parser.error("supply --timing-sync-ranks for ucm-sync only")
-    if not math.isfinite(args.timing_log_wait) or args.timing_log_wait <= 0:
-        parser.error("--timing-log-wait must be positive and finite")
     return args
 
 
@@ -475,388 +420,80 @@ def single_sequence(api, body):
 
 
 class RequestTiming:
-    """Worker-local observations. All times are monotonic seconds; no log file access."""
+    """Collect one logical request's proxy observations on the HTTP worker's clock."""
 
     def __init__(self, api, body, received_at):
-        self.rid = body["request_id"]
-        self.key = (
-            ("chatcmpl-" + self.rid)
-            if api == "/chat/completions"
-            else ("cmpl-" + self.rid + "-0")
-        )
         self.single = single_sequence(api, body)
         self.stream = bool(body.get("stream"))
+        self.echo = bool(body.get("echo"))
         self.received = received_at
-        self.p_seconds = self.d_seconds = 0.0
-        self.first_p = self.first_d_send = self.first_token = self.last_token = None
-        self.first_source = None
-        self.prompt_tokens = self.cached_prompt_tokens = self.usage_tokens = None
-        self.id_count = 0
-        self.saw_ids = self.missing_ids = False
-        self.recomputes = self.retries = 0
-        self.recompute_signals = 0
-        self.interrupted = False
-        self.terminal = False
-        self.prefiller = self.decoder = None
+        self.prefill_http = 0.0
+        self.first_p = self.first_d_send = self.first_token = None
+        self.recomputes = self.retries = self.recompute_signals = 0
+        self.interrupted = self.terminal = False
 
-    def prefill_response(self, payload, at):
-        if self.first_p is None:
-            self.first_p = at
-            usage = payload.get("usage") or {}
-            self.prompt_tokens = usage.get("prompt_tokens")
-            self.cached_prompt_tokens = (usage.get("prompt_tokens_details") or {}).get(
-                "cached_tokens"
-            )
-
-    def observe(self, payload, at, source=None):
-        if not isinstance(payload, dict):
+    def observe(self, event: "DecodeEvent") -> None:
+        if event.done:
+            self.terminal = True
+        message = event.message
+        if message is None:
             return
-        if payload.get("error"):
+        if message.get("error"):
             self.interrupted = True
-        usage = payload.get("usage") or {}
-        if self.prompt_tokens is None:
-            self.prompt_tokens = usage.get("prompt_tokens")
-        if isinstance(usage.get("completion_tokens"), int):
-            self.usage_tokens = usage["completion_tokens"]
-        elif source:
-            self.usage_tokens = (
-                None  # A previous cumulative count predates this output.
-            )
-        for choice in payload.get("choices") or ():
+        for choice in message.get("choices") or ():
             if choice.get("stop_reason") == "recomputed":
                 self.recompute_signals += 1
-                continue
-            if choice.get("finish_reason") is not None:
+            elif choice.get("finish_reason") is not None:
                 self.terminal = True
-            ids = choice.get("token_ids")
-            if isinstance(ids, list):
-                self.saw_ids = True
-                self.id_count += len(ids)
-            elif source:
-                self.missing_ids = True
-        if source:
-            if self.first_token is None:
-                self.first_token = at
-                self.first_source = source
-            self.last_token = at
+        if (
+            self.first_token is None
+            and self.stream
+            and event.is_sse
+            and has_generated_output(message, self.echo)
+        ):
+            self.first_token = event.received_at
 
-    def summary(self, status):
-        finished_at = time.perf_counter()
-        elapsed = finished_at - self.received
+    def observation(self, status: str) -> tuple[str, dict[str, float]]:
+        """Return a bounded outcome and the available successful stage durations in seconds."""
         if status == "ok" and self.recompute_signals > self.recomputes:
             status = "unresolved_recompute"
         if status == "ok" and (self.interrupted or self.stream and not self.terminal):
             status = "interrupted"
-        tokens = self.usage_tokens
-        token_source = "usage" if tokens is not None else None
-        if (
-            self.saw_ids
-            and not self.missing_ids
-            and (tokens is None or tokens < self.id_count)
-        ):
-            tokens, token_source = self.id_count, "token_ids"
-        if self.recomputes or status != "ok":
-            tokens, token_source = (
-                None,
-                None,
-            )  # Last-attempt usage cannot represent the logical output.
-        first = self.first_token
-        tpot = None
-        if (
-            self.single
-            and first is not None
-            and self.last_token > first
-            and tokens is not None
-            and tokens > 1
-        ):
-            tpot = (self.last_token - first) * 1000 / (tokens - 1)
-        return {
-            "request_id": self.rid,
-            "proxy_start_ns": round(self.received * 1_000_000_000),
-            "proxy_end_ns": round(finished_at * 1_000_000_000),
-            "status": status,
-            "prefiller": self.prefiller,
-            "decoder": self.decoder,
-            "prompt_tokens": self.prompt_tokens,
-            "prefill_cached_tokens": self.cached_prompt_tokens,
-            "output_tokens": tokens,
-            "count_source": token_source,
-            "sequence_scope": "single" if self.single else "multi",
-            "first_token_source": self.first_source,
-            "ttft_ms": (first - self.received) * 1000 if first is not None else None,
-            "p_response_to_first_token_ms": (
-                (first - self.first_p) * 1000 if first is not None else None
-            ),
-            "d_send_to_first_token_ms": (
-                (first - self.first_d_send) * 1000 if first is not None else None
-            ),
-            "p_response_to_d_send_ms": (
-                (self.first_d_send - self.first_p) * 1000
-                if self.first_d_send is not None
-                else None
-            ),
-            "generation_ms": (
-                (self.last_token - first) * 1000
-                if first is not None and not self.recomputes and status == "ok"
-                else None
-            ),
-            "tpot_ms": tpot,
-            "output_tps": (
-                tokens / elapsed if tokens is not None and elapsed > 0 else None
-            ),
-            "decode_tps": 1000 / tpot if tpot and tpot > 0 else None,
-            "prefill_http_ms": self.p_seconds * 1000 if self.prefiller else None,
-            "decode_http_ms": (
-                self.d_seconds * 1000 if self.first_d_send is not None else None
-            ),
-            "e2e_ms": elapsed * 1000,
-            "recomputes": self.recomputes,
-            "http_retries": self.retries,
-        }
+        if status != "ok":
+            return status, {}
+        outcome = "success"
+        if self.recomputes:
+            outcome = "recomputed"
+        elif self.retries:
+            outcome = "retried"
+        if not self.single:
+            return outcome, {}
+        durations = {"prefill_http": self.prefill_http}
+        if self.first_p is not None and self.first_d_send is not None:
+            durations["p_response_to_d_send"] = self.first_d_send - self.first_p
+        if self.first_token is not None and self.first_d_send is not None:
+            durations["ttft"] = self.first_token - self.received
+            durations["d_send_to_first_token"] = self.first_token - self.first_d_send
+        return outcome, durations
 
 
-class LogTail:
-    """Follow one active filename, draining a renamed inode before switching."""
-
-    def __init__(self, path, history=False):
-        self.path = path
-        self.file = path.open("rb")
-        if history:
-            self.file.seek(0, os.SEEK_END)
-        self.partial = b""
-
-    def read(self):
-        try:
-            stat = self.path.stat()
-        except FileNotFoundError:
-            stat = None
-        current = os.fstat(self.file.fileno())
-        if current.st_size < self.file.tell():
-            self.file.seek(0)
-            self.partial = b""
-        data = self.file.read(256 * 1024)
-        if (
-            not data
-            and stat
-            and (stat.st_dev, stat.st_ino) != (current.st_dev, current.st_ino)
-        ):
-            replacement = self.path.open("rb")
-            self.file.close()
-            self.file = replacement
-            self.partial = b""
-            data = self.file.read(256 * 1024)
-        lines = (self.partial + data).split(b"\n")
-        self.partial = lines.pop()
-        return lines, len(data) == 256 * 1024, stat is None and not data
-
-
-@dataclass
-class PendingHandoff:
-    starts: list = field(default_factory=list)
-    ends: list = field(default_factory=list)
-    reports: list = field(default_factory=list)
-    active: int = 0
-    reused: bool = False
-
-
-class HandoffCollector:
-    """Owned by the process serving SharedProxyScheduler. Only its thread touches shared files."""
-
-    def __init__(self, args, logger):
-        self.logger = logger
-        self.backend = args.timing_backend
-        self.ranks = set(args.timing_sync_ranks or []) or None
-        self.wait_seconds = args.timing_log_wait
-        self.exact_ids = args.timing_exact_ids
-        self.sources = [
-            (
-                args.prefiller_logs,
-                True,
-                MOONCAKE_PREFILL if self.backend == "mooncake" else UCM_PREFILL,
-            ),
-            (
-                args.decoder_logs,
-                False,
-                UCM_RANK if self.backend == "ucm-sync" else SCHEDULER_RECV,
-            ),
-        ]
-        self.inbox = Queue(maxsize=MAX_PENDING_HANDOFFS * 2)
-        self.overflow = threading.Event()
-        self.pending = {}
-        self.tails = {}
-        self.warned = set()
-        self.stop = threading.Event()
-        # Establish initial offsets before admitting traffic; later-created files start at byte zero.
-        self.discover(history=True)
-        self.thread = threading.Thread(
-            target=self.run, name="pd-handoff-logs", daemon=True
-        )
-        self.thread.start()
-
-    def register(self, key):
-        self._enqueue(key, None)
-
-    def finish(self, key, summary):
-        self._enqueue(key, summary)
-
-    def _enqueue(self, key, summary):
-        try:
-            self.inbox.put_nowait((key, summary))
-        except Full:
-            self.overflow.set()
-
-    def warn_once(self, key, message):
-        if key not in self.warned:
-            self.warned.add(key)
-            self.logger.warning("P/D timing log %s: %s", key, message)
-
-    def discover(self, history=False):
-        for patterns, is_p, pattern in self.sources:
-            for wildcard in patterns:
-                for name in glob.iglob(wildcard):
-                    path = Path(name)
-                    if (path, is_p) not in self.tails:
-                        try:
-                            self.tails[path, is_p] = (LogTail(path, history), pattern)
-                        except OSError as exc:
-                            self.warn_once(path, exc)
-
-    def drain_inbox(self):
-        if self.overflow.is_set():
-            self.overflow.clear()
-            self.logger.warning(
-                "P/D timing queue overflow: observations dropped; in-flight joins are ambiguous"
-            )
-            for slot in self.pending.values():
-                slot.reused = True
-        while True:
-            try:
-                key, report = self.inbox.get_nowait()
-            except Empty:
-                return
-            slot = self.pending.get(key)
-            if slot is None:
-                if len(self.pending) >= MAX_PENDING_HANDOFFS:
-                    oldest = next(iter(self.pending))
-                    del self.pending[oldest]
-                    self.warn_once(
-                        "capacity",
-                        "evicting oldest request; verify shared log reader keeps up",
-                    )
-                slot = self.pending[key] = PendingHandoff()
-            if report is None:
-                slot.reused |= bool(slot.active or slot.reports)
-                slot.active += 1
-            else:
-                if not slot.active:
-                    slot.reused = True
-                slot.active = max(0, slot.active - 1)
-                slot.reports.append((report, time.monotonic() + self.wait_seconds))
-
-    def poll(self):
-        self.discover()
-        self.drain_inbox()
-        backlog = False
-        for (path, is_p), (tail, pattern) in list(self.tails.items()):
-            try:
-                lines, more, gone = tail.read()
-                backlog |= more
-                if gone:
-                    tail.file.close()
-                    del self.tails[path, is_p]
-            except OSError as exc:
-                self.warn_once(path, exc)
-                continue
-            # Registration is enqueued before the P HTTP call. A new request
-            # could have arrived while this thread was reading a shared file.
-            self.drain_inbox()
-            for raw in lines:
-                try:
-                    event = parse_handoff_event(
-                        raw.decode(errors="replace"), pattern, self.exact_ids
-                    )
-                except ValueError as exc:
-                    self.warn_once(path, exc)
-                    continue
-                if event and (slot := self.pending.get(event[0])):
-                    (slot.starts if is_p else slot.ends).append(event[1])
-        return backlog
-
-    def flush(self, closing=False):
-        now = time.monotonic()
-        for key, slot in list(self.pending.items()):
-            if not slot.reports:
-                continue
-            remaining = []
-            for metrics, deadline in slot.reports:
-                ms, status = handoff_duration(slot.starts, slot.ends, self.ranks)
-                if slot.reused or metrics["recomputes"] or metrics["http_retries"]:
-                    ms, status = None, "ambiguous_attempts"
-                elif metrics["status"] != "ok":
-                    ms, status = None, metrics["status"]
-                elif metrics["sequence_scope"] != "single":
-                    ms, status = None, "multi_output"
-                if (
-                    status in ("missing_prefill", "missing_decode", "rank_set_mismatch")
-                    and now < deadline
-                    and not closing
-                ):
-                    remaining.append((metrics, deadline))
-                    continue
-                values = {
-                    "request_id": metrics["request_id"],
-                    "backend": self.backend,
-                    "kv_handoff_ms": ms,
-                    "kv_status": status,
-                    **metrics,
-                }
-                fields = " ".join(
-                    f"{name}={format_field(value)}" for name, value in values.items()
-                )
-                self.logger.info("pd_request_timing %s", fields)
-            slot.reports = remaining
-            if not slot.active and not remaining:
-                del self.pending[key]
-
-    def run(self):
-        try:
-            while not self.stop.is_set():
-                more = self.poll()
-                self.flush()
-                if not more:
-                    self.stop.wait(0.2)
-            self.poll()
-            self.flush(closing=True)
-        finally:
-            for tail, _ in self.tails.values():
-                tail.file.close()
-
-    def close(self):
-        self.stop.set()
-        self.thread.join(timeout=2)
-
-
-def format_field(value):
-    if value is None:
-        return "NA"
-    if isinstance(value, float):
-        return f"{value:.3f}"
-    if isinstance(value, str) and any(c.isspace() for c in value):
-        return json.dumps(value)
-    return str(value)
-
-
-def build_decode_request(req_data: dict, prefill_reply: dict, *, ucm_pd: bool) -> dict:
-    """Build this attempt's D payload. Empty P metadata falls back to the client's original parameters."""
+def build_decode_request(
+    req_data: dict, prefill_reply: dict, *, ucm_pd: bool, relay_timestamp: bool
+) -> dict:
+    """Forward this P attempt's timing alongside its routing metadata or client hints."""
     payload = req_data.copy()
-    handoff = prefill_reply.get("kv_transfer_params")
-    if handoff:
-        payload["kv_transfer_params"] = handoff
+    handoff = dict(prefill_reply.get("kv_transfer_params") or {})
+    prefill_done = handoff.pop("pd_prefill_done_unix_ns", None)
+    # A timestamp-only reply from UCM carries no routing information. Preserve
+    # the existing fallback, but never attribute a client-supplied timestamp to P.
+    params = handoff or dict(req_data.get("kv_transfer_params") or {})
+    params.pop("pd_prefill_done_unix_ns", None)
+    if relay_timestamp and type(prefill_done) is int and prefill_done > 0:
+        params["pd_prefill_done_unix_ns"] = prefill_done
     if ucm_pd:
-        payload["kv_transfer_params"] = {
-            **(payload.get("kv_transfer_params") or {}),
-            "do_remote_prefill": True,
-        }
+        params["do_remote_prefill"] = True
+    if params or req_data.get("kv_transfer_params") is not None:
+        payload["kv_transfer_params"] = params
     if not payload.get("stream", False):
         payload.pop("stream_options", None)
     return payload
@@ -864,58 +501,50 @@ def build_decode_request(req_data: dict, prefill_reply: dict, *, ucm_pd: bool) -
 
 async def prefill_for_decode(
     client: "httpx.AsyncClient",
-    prefiller_key: str,
     api: str,
     req_data: dict,
     request_id: str,
     args: argparse.Namespace,
-    timing: RequestTiming | None,
-) -> tuple[dict, int | None, float]:
-    """Return the new D payload, P cached-token count and P response time for this attempt."""
+    timing: RequestTiming,
+) -> tuple[dict, int | None]:
+    """Return the new D payload and P cached-token count for this attempt."""
     if args.ucm_pd:
         req_data["request_id"] = request_id
+    # Batched responses expose only one child's transfer parameters. Only a
+    # single-sequence UCM handoff can attribute P's timestamp to this D request.
+    relay_timestamp = args.ucm_pd and single_sequence(api, req_data)
     sent_at = time.perf_counter()
-    if timing is not None:
-        timing.prefiller = prefiller_key
-    try:
-        response = await send_request_to_service(
-            client,
-            api,
-            req_data,
-            request_id,
-            max_retries=args.max_retries,
-            base_delay=args.retry_delay,
-            timing=timing,
-        )
-        received_at = time.perf_counter()
-        logger.info(
-            "PD prefill_response request_id=%s prefiller=%s", request_id, prefiller_key
-        )
-        reply = response.json()
-        decode_request = build_decode_request(req_data, reply, ucm_pd=args.ucm_pd)
-        cached_tokens = extract_cached_tokens(reply)
-    except (Exception, asyncio.CancelledError):
-        if timing is not None:
-            timing.p_seconds += time.perf_counter() - sent_at
-        raise
-    if timing is not None:
-        timing.p_seconds += received_at - sent_at
-        timing.prefill_response(reply, received_at)
-    return decode_request, cached_tokens, received_at
+    prefill_request = build_prefill_request(req_data, relay_timestamp=relay_timestamp)
+    response = await send_request_to_service(
+        client,
+        api,
+        prefill_request,
+        request_id,
+        max_retries=args.max_retries,
+        base_delay=args.retry_delay,
+        timing=timing,
+    )
+    received_at = time.perf_counter()
+    timing.prefill_http += received_at - sent_at
+    if timing.first_p is None:
+        timing.first_p = received_at
+    reply = response.json()
+    decode_request = build_decode_request(
+        req_data, reply, ucm_pd=args.ucm_pd, relay_timestamp=relay_timestamp
+    )
+    return decode_request, extract_cached_tokens(reply)
 
 
 _SSE_EVENT_END = re.compile(rb"\r?\n\r?\n")
 
 
-def _output_source(message: dict | None, echo: bool) -> str | None:
+def has_generated_output(message: dict, echo: bool) -> bool:
     """Identify generated output in an OpenAI-compatible streaming message."""
-    if not isinstance(message, dict):
-        return None
     for choice in message.get("choices") or ():
         if choice.get("stop_reason") == "recomputed":
             continue
         if choice.get("token_ids"):
-            return "token_ids"
+            return True
         if (
             echo
         ):  # Echoed prompt text is indistinguishable from generated text without output IDs.
@@ -923,14 +552,14 @@ def _output_source(message: dict | None, echo: bool) -> str | None:
         delta = choice.get("delta") or {}
         for key in ("content", "reasoning", "reasoning_content"):
             if delta.get(key):
-                return key
+                return True
         if choice.get("text"):
-            return "text"
+            return True
         for tool in delta.get("tool_calls") or ():
             function = tool.get("function") or {}
             if function.get("name") or function.get("arguments"):
-                return "tool_call"
-    return None
+                return True
+    return False
 
 
 @dataclass
@@ -1000,80 +629,6 @@ async def decode_response_events(first, chunks) -> AsyncIterator[DecodeEvent]:
             yield DecodeEvent.parse(bytes(pending), received_at, False)
 
 
-@dataclass
-class DecodeObserver:
-    """Observe complete D events across all attempts of one logical request."""
-
-    request_id: str
-    streaming: bool
-    prefill_response_at: float | None
-    echo: bool
-    timing: RequestTiming | None
-    logged_first_token: bool = False
-
-    def observe(self, event: DecodeEvent) -> None:
-        if event.message is None:
-            if event.done and self.timing is not None:
-                self.timing.terminal = True
-            return
-        source = None
-        if self.streaming and event.is_sse and self.prefill_response_at is not None:
-            if self.timing is not None or not self.logged_first_token:
-                source = _output_source(event.message, self.echo)
-            if source and not self.logged_first_token:
-                self.logged_first_token = True
-                logger.info(
-                    "PD decode_first_token request_id=%s source=%s p_response_to_first_token_ms=%.2f",
-                    self.request_id,
-                    source,
-                    (event.received_at - self.prefill_response_at) * 1000,
-                )
-        if self.timing is not None:
-            self.timing.observe(event.message, event.received_at, source)
-
-
-class DecodeAttempt:
-    """Measure one D HTTP attempt up to its last byte, or its end if no byte arrived."""
-
-    def __init__(self, request_id, decoder, attempt, prefill_response_at, timing):
-        self.request_id = request_id
-        self.decoder = decoder
-        self.attempt = attempt
-        self.prefill_response_at = prefill_response_at
-        self.timing = timing
-        self.last_byte_at = None
-        self.sent_at = time.perf_counter()
-        if timing is not None:
-            if attempt > 1:
-                timing.retries += 1
-            if timing.first_d_send is None:
-                timing.first_d_send = self.sent_at
-
-    def received_bytes(self) -> float:
-        received_at = time.perf_counter()
-        if self.last_byte_at is None and self.prefill_response_at is not None:
-            logger.info(
-                "PD decode_first_bytes request_id=%s decoder=%s attempt=%d "
-                "p_response_to_d_send_ms=%.2f d_send_to_first_bytes_ms=%.2f",
-                self.request_id,
-                self.decoder,
-                self.attempt,
-                (self.sent_at - self.prefill_response_at) * 1000,
-                (received_at - self.sent_at) * 1000,
-            )
-        if self.timing is not None:
-            previous = (
-                self.last_byte_at if self.last_byte_at is not None else self.sent_at
-            )
-            self.timing.d_seconds += received_at - previous
-        self.last_byte_at = received_at
-        return received_at
-
-    def finish(self) -> None:
-        if self.timing is not None and self.last_byte_at is None:
-            self.timing.d_seconds += time.perf_counter() - self.sent_at
-
-
 class _FileLogListener(QueueListener):
     def enqueue_sentinel(self):
         # Shutdown may wait for disk. The request path always uses put_nowait.
@@ -1092,7 +647,7 @@ class ProxyFileHandler(QueueHandler):
 
     def enqueue(self, record):
         if self.dropped:
-            record.msg = f"pd_proxy_log_gap dropped={self.dropped}\n{record.msg}"
+            record.msg = f"Proxy file log dropped {self.dropped} records\n{record.msg}"
         try:
             self.queue.put_nowait(record)
         except Full:
@@ -1105,7 +660,7 @@ class ProxyFileHandler(QueueHandler):
             if self.dropped:
                 self.queue.put(
                     logging.makeLogRecord(
-                        {"msg": f"pd_proxy_log_gap dropped={self.dropped}"}
+                        {"msg": f"Proxy file log dropped {self.dropped} records"}
                     )
                 )
             self.listener.stop()
@@ -1131,6 +686,7 @@ def proxy_log_handlers(path: str | None):
 import httpx  # noqa: E402
 from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse, Response, StreamingResponse  # noqa: E402
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Histogram, generate_latest  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -1147,6 +703,43 @@ class ServerRole(str, Enum):
     DECODE = "decode"
 
 
+class ProxyMetrics:
+    """One registry in the scheduler process serves every HTTP worker."""
+
+    def __init__(self, backend: str):
+        self.registry = CollectorRegistry()
+        self.requests = Counter(
+            "pd_proxy_requests_total", "Completed logical requests by proxy outcome.",
+            ("backend", "outcome"), registry=self.registry,
+        )
+        # A window containing the first failure needs a zero baseline for rate().
+        for outcome in (
+            "success", "retried", "recomputed", "cancelled", "upstream_error",
+            "interrupted", "unresolved_recompute",
+        ):
+            self.requests.labels(backend, outcome)
+        self.backend = backend
+        buckets = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 480, 600)
+        descriptions = {
+            "ttft": "Proxy request arrival to first generated streaming output.",
+            "prefill_http": "Time spent in P HTTP calls for the logical request.",
+            "p_response_to_d_send": "First P response to first D HTTP send.",
+            "d_send_to_first_token": "First D HTTP send to first generated streaming output.",
+        }
+        self.durations = {
+            stage: Histogram(
+                f"pd_proxy_{stage}_seconds", description, ("backend", "outcome"),
+                buckets=buckets, registry=self.registry,
+            )
+            for stage, description in descriptions.items()
+        }
+
+    def observe(self, outcome: str, durations: dict[str, float]) -> None:
+        self.requests.labels(self.backend, outcome).inc()
+        for stage, seconds in durations.items():
+            self.durations[stage].labels(self.backend, outcome).observe(seconds)
+
+
 @dataclass
 class InstanceInfo:
     request_id: str
@@ -1156,10 +749,9 @@ class InstanceInfo:
     decoder_score: float
     decoder_host: str
     decoder_port: int
+    timing: RequestTiming
     prefiller_cached_tokens: int | None = None
     decoder_released: bool = False
-    prefill_response_at: float | None = None
-    timing: RequestTiming | None = None
     decode_request: dict = field(default_factory=dict, repr=False)
 
 
@@ -1281,7 +873,7 @@ class SharedProxyScheduler:
     not match) are skipped on pop.
     """
 
-    def __init__(self, prefiller_instances, decoder_instances):
+    def __init__(self, prefiller_instances, decoder_instances, *, backend="mooncake"):
         self._lock = threading.RLock()
         self.request_num = 0
         self.waiting_nodes: dict[str, tuple[str, tuple[str, int], int]] = {}
@@ -1290,7 +882,7 @@ class SharedProxyScheduler:
             ServerRole.DECODE: RolePools(),
         }
         self._ordinal = 0
-        self._timing_collector = None
+        self._metrics = ProxyMetrics(backend)
 
         for host, port in prefiller_instances:
             self._add_server_no_lock(ServerRole.PREFILL, host, port)
@@ -1438,13 +1030,11 @@ class SharedProxyScheduler:
             entry.active_kv_cache = max(0.0, entry.active_kv_cache - load)
         self._push_heap(role, key)
 
-    def begin_request(self, load: float, affinity_key: str | None = None, timing_key: str | None = None) -> dict[str, Any]:
+    def begin_request(self, load: float, affinity_key: str | None = None) -> dict[str, Any]:
         """Pick a prefiller, reserve KV pressure, and count this as an active request."""
         with self._lock:
             picked = self._pick_server(ServerRole.PREFILL, load, kv_cache=True, affinity_key=affinity_key)
             self.request_num += 1
-            if timing_key is not None:
-                self._timing_collector.register(timing_key)
             return picked
 
     def reserve_prefill_kv(self, load: float, affinity_key: str | None = None) -> dict[str, Any]:
@@ -1471,15 +1061,17 @@ class SharedProxyScheduler:
         decoder_key: str | None,
         decoder_load: float,
         release_prefill_kv: bool,
-        timing_report: tuple | None = None,
+        observation: tuple[str, dict[str, float]],
     ) -> None:
         with self._lock:
             if release_prefill_kv:
                 self._release_load(ServerRole.PREFILL, prefiller_key, prefiller_load, kv_cache=True)
             self._release_load(ServerRole.DECODE, decoder_key, decoder_load, active_tokens=True)
             self.request_num = max(0, self.request_num - 1)
-            if timing_report is not None:
-                self._timing_collector.finish(*timing_report)
+        self._metrics.observe(*observation)
+
+    def render_metrics(self) -> bytes:
+        return generate_latest(self._metrics.registry)
 
     def get_waiting_nodes(self) -> dict[str, tuple[str, tuple[str, int], int]]:
         with self._lock:
@@ -1785,9 +1377,9 @@ def _ensure_scheduler(args) -> SharedProxyScheduler:
     global shared_scheduler
     if shared_scheduler is not None:
         return shared_scheduler
-    shared_scheduler = SharedProxyScheduler(args.prefiller_instances, args.decoder_instances)
-    if args.timing_backend:
-        shared_scheduler._timing_collector = HandoffCollector(args, logger)
+    shared_scheduler = SharedProxyScheduler(
+        args.prefiller_instances, args.decoder_instances, backend="ucm" if args.ucm_pd else "mooncake",
+    )
     NodeListener(shared_scheduler)
     return shared_scheduler
 
@@ -1813,8 +1405,6 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         await runtime.close()
-        if args.workers == 1 and scheduler._timing_collector is not None:
-            await asyncio.to_thread(scheduler._timing_collector.close)
         runtime = None
 
 
@@ -1857,7 +1447,7 @@ def auth_headers(request_id: str) -> dict[str, str]:
     }
 
 
-def build_prefill_request(req_data: dict) -> dict:
+def build_prefill_request(req_data: dict, *, relay_timestamp: bool = False) -> dict:
     payload = req_data.copy()
     payload["kv_transfer_params"] = {
         "do_remote_decode": True,
@@ -1867,6 +1457,8 @@ def build_prefill_request(req_data: dict) -> dict:
         "remote_host": None,
         "remote_port": None,
     }
+    if relay_timestamp:
+        payload["kv_transfer_params"]["ucm_pd_relay"] = True
     payload["stream"] = False
     payload["max_tokens"] = 1
     payload["min_tokens"] = 1
@@ -1883,13 +1475,13 @@ async def send_request_to_service(
     request_id: str,
     max_retries: int = 3,
     base_delay: float = 0.2,
-    timing=None,
+    *,
+    timing: RequestTiming,
 ):
-    req_data = build_prefill_request(req_data)
     headers = auth_headers(request_id)
     max_attempts = max(1, max_retries)
     for attempt in range(1, max_attempts + 1):
-        if timing is not None and attempt > 1:
+        if attempt > 1:
             timing.retries += 1
         try:
             response = await client.post(endpoint, json=req_data, headers=headers)
@@ -1914,14 +1506,17 @@ async def stream_service_response(
     max_retries: int = 3,
     base_delay: float = 0.2,
     *,
-    prefill_response_at: float | None = None,
-    timing=None,
+    timing: RequestTiming,
 ) -> AsyncIterator[tuple[bytes, float, bool]]:
     """Yield raw body chunks, their monotonic arrival times and the response's SSE mode."""
     headers = auth_headers(request_id)
     max_attempts = max(1, max_retries)
     for attempt in range(1, max_attempts + 1):
-        observation = DecodeAttempt(request_id, client.base_url, attempt, prefill_response_at, timing)
+        if timing.first_d_send is None:
+            timing.first_d_send = time.perf_counter()
+        if attempt > 1:
+            timing.retries += 1
+        received_bytes = False
         try:
             async with client.stream("POST", endpoint, json=req_data, headers=headers) as response:
                 if response.status_code >= 400:
@@ -1934,32 +1529,29 @@ async def stream_service_response(
                 media_type = response.headers.get("content-type", "").partition(";")[0].strip().lower()
                 is_sse = media_type == "text/event-stream" if media_type else bool(req_data.get("stream"))
                 async for chunk in response.aiter_bytes():
-                    yield chunk, observation.received_bytes(), is_sse
+                    received_bytes = True
+                    yield chunk, time.perf_counter(), is_sse
                 return
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 400 or attempt == max_attempts:
                 raise
             logger.warning("Attempt %s failed for streaming %s: %s", attempt, endpoint, exc)
         except httpx.RequestError as exc:
-            if observation.last_byte_at is not None:
-                if timing is not None:
-                    timing.interrupted = True
+            if received_bytes:
+                timing.interrupted = True
                 logger.error("Streaming to client interrupted after response started: %s", exc)
                 return
             if attempt == max_attempts:
                 raise
             logger.warning("Attempt %s failed for streaming %s: %s", attempt, endpoint, exc)
         except Exception as exc:
-            if observation.last_byte_at is not None:
-                if timing is not None:
-                    timing.interrupted = True
+            if received_bytes:
+                timing.interrupted = True
                 logger.error("Streaming to client interrupted after response started: %s", exc)
                 return
             if attempt == max_attempts:
                 raise
             logger.warning("Attempt %s failed for streaming %s: %s", attempt, endpoint, exc)
-        finally:
-            observation.finish()
         await asyncio.sleep(base_delay * (2 ** (attempt - 1)))
 
 
@@ -1969,12 +1561,13 @@ async def _abort_prefill_selection(
     prefiller_score: float,
     *,
     is_initial_request: bool,
-    timing=None,
+    timing: RequestTiming,
+    error: BaseException,
 ) -> None:
     if is_initial_request:
-        report = (timing.key, timing.summary("upstream_error")) if timing is not None else None
+        status = "cancelled" if isinstance(error, asyncio.CancelledError) else "upstream_error"
         await runtime.schedule("finish_request", prefiller_key, prefiller_score, None, 0.0, release_prefill_kv=True,
-                               timing_report=report)
+                               observation=timing.observation(status))
     else:
         await runtime.schedule("release_prefill_kv", prefiller_key, prefiller_score)
 
@@ -1987,7 +1580,7 @@ async def _finish_instance(runtime: WorkerRuntime, info: InstanceInfo, *, releas
         None if info.decoder_released else info.decoder_key,
         info.decoder_score,
         release_prefill_kv,
-        timing_report=(info.timing.key, info.timing.summary(status)) if info.timing is not None else None,
+        observation=info.timing.observation(status),
     )
     info.decoder_released = True
 
@@ -2005,7 +1598,7 @@ async def assign_instances(
     request_length: int,
     *,
     is_initial_request: bool,
-    timing=None,
+    timing: RequestTiming,
 ) -> InstanceInfo:
     runtime = get_runtime()
     args = get_global_args()
@@ -2013,32 +1606,29 @@ async def assign_instances(
     decoder_score = calculate_decode_score(request_length)
     request_id = req_data.get("request_id") or next_req_id()
     pick_prefill = "begin_request" if is_initial_request else "reserve_prefill_kv"
-    timing_args = {"timing_key": timing.key} if timing is not None and is_initial_request else {}
     if args.enable_prefill_affinity:
-        prefiller = await runtime.schedule(pick_prefill, prefiller_score, conversation_affinity_key(req_data), **timing_args)
+        prefiller = await runtime.schedule(pick_prefill, prefiller_score, conversation_affinity_key(req_data))
     else:
-        prefiller = await runtime.schedule(pick_prefill, prefiller_score, **timing_args)
+        prefiller = await runtime.schedule(pick_prefill, prefiller_score)
     prefiller_key = prefiller["key"]
 
     try:
-        decode_request, prefiller_cached_tokens, prefill_response_at = await prefill_for_decode(
+        decode_request, prefiller_cached_tokens = await prefill_for_decode(
             await runtime.get_client(ServerRole.PREFILL, prefiller_key),
-            prefiller_key, api, req_data, request_id, args, timing,
+            api, req_data, request_id, args, timing,
         )
-    except (Exception, asyncio.CancelledError):
-        await _abort_prefill_selection(runtime, prefiller_key, prefiller_score, is_initial_request=is_initial_request, timing=timing)
+    except (Exception, asyncio.CancelledError) as exc:
+        await _abort_prefill_selection(runtime, prefiller_key, prefiller_score, is_initial_request=is_initial_request, timing=timing, error=exc)
         raise
 
     decoder_key = None
     try:
         decoder = await runtime.schedule("pick_decoder", decoder_score)
         decoder_key = decoder["key"]
-        if timing is not None:
-            timing.decoder = decoder_key
         prefiller_client = await runtime.get_client(ServerRole.PREFILL, prefiller_key)
         decoder_client = await runtime.get_client(ServerRole.DECODE, decoder_key)
-    except (Exception, asyncio.CancelledError):
-        await _abort_prefill_selection(runtime, prefiller_key, prefiller_score, is_initial_request=is_initial_request, timing=timing)
+    except (Exception, asyncio.CancelledError) as exc:
+        await _abort_prefill_selection(runtime, prefiller_key, prefiller_score, is_initial_request=is_initial_request, timing=timing, error=exc)
         if decoder_key is not None:
             await runtime.schedule("release_decoder", decoder_key, decoder_score)
         raise
@@ -2053,7 +1643,6 @@ async def assign_instances(
         decoder_host=decoder["host"],
         decoder_port=decoder["port"],
         prefiller_cached_tokens=prefiller_cached_tokens,
-        prefill_response_at=prefill_response_at,
         timing=timing,
         decode_request=decode_request,
     )
@@ -2072,11 +1661,8 @@ async def reassign_instances(
         await runtime.schedule("release_prefill_kv", previous_instance.prefiller_key, previous_instance.prefiller_score)
     await _release_decoder_once(runtime, previous_instance)
     req_data["request_id"] = previous_instance.request_id  # Keep the logical ID across recompute attempts.
-    extra = {}
-    if previous_instance.timing is not None:
-        previous_instance.timing.recomputes += 1
-        extra["timing"] = previous_instance.timing
-    return await assign_instances(api, req_data, request_length, is_initial_request=False, **extra)
+    previous_instance.timing.recomputes += 1
+    return await assign_instances(api, req_data, request_length, is_initial_request=False, timing=previous_instance.timing)
 
 
 async def handle_completions_impl(api: str, request: Request):
@@ -2092,16 +1678,9 @@ async def handle_completions_impl(api: str, request: Request):
             req_data["request_id"] = request_id
         req_body = await request.body()
         request_length = len(req_body)
-        extra = {}
-        if getattr(args, "timing_backend", None):
-            req_data["request_id"] = req_data.get("request_id") or next_req_id()
-            extra["timing"] = RequestTiming(api, req_data, received_at)
-        instance_info = await assign_instances(api, req_data, request_length, is_initial_request=True, **extra)
+        timing = RequestTiming(api, req_data, received_at)
+        instance_info = await assign_instances(api, req_data, request_length, is_initial_request=True, timing=timing)
         stream_flag = bool(req_data.get("stream", False))
-        observer = DecodeObserver(
-            instance_info.request_id, stream_flag, instance_info.prefill_response_at,
-            bool(req_data.get("echo")), instance_info.timing,
-        )
         chat_flag = "messages" in req_data
 
         if "prompt" in req_data:
@@ -2118,7 +1697,7 @@ async def handle_completions_impl(api: str, request: Request):
             chunks = stream_service_response(
                 client, api, info.decode_request, request_id=info.request_id,
                 max_retries=args.max_retries, base_delay=args.retry_delay,
-                prefill_response_at=info.prefill_response_at, timing=info.timing,
+                timing=info.timing,
             )
             # Read the first bytes before committing the HTTP status to the client.
             return chunks, await anext(chunks, None)
@@ -2168,7 +1747,7 @@ async def handle_completions_impl(api: str, request: Request):
                             )
                             released_kv = True
                         async for event in decode_response_events(first, chunks):
-                            observer.observe(event)
+                            timing.observe(event)
                             message = event.message
                             if message is None:
                                 yield event.raw
@@ -2309,6 +1888,12 @@ async def handle_completions(request: Request):
     return await handle_completions_impl("/completions", request)
 
 
+@app.get("/metrics")
+async def proxy_metrics():
+    payload = await asyncio.to_thread(get_runtime().scheduler.render_metrics)
+    return Response(content=payload, headers={"Content-Type": CONTENT_TYPE_LATEST})
+
+
 @app.post("/v1/chat/completions")
 @with_cancellation
 async def handle_chat_completions(request: Request):
@@ -2409,6 +1994,4 @@ if __name__ == "__main__":
         )
     finally:
         cleanup_manager_config(global_args.port)
-        if shared_scheduler is not None and shared_scheduler._timing_collector is not None:
-            shared_scheduler._timing_collector.close()
 # fmt: on

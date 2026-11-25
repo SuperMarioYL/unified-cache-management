@@ -1,0 +1,24 @@
+# Replace the example hostnames with each deployment's reachable API endpoints.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: pd-comparison
+    static_configs:
+      - targets: ["ucm-p:8100"]
+        labels: {pd_backend: ucm-sync, pd_role: p}
+      - targets: ["ucm-d:8200"]
+        labels: {pd_backend: ucm-sync, pd_role: d}
+      - targets: ["ucm-proxy:9000"]
+        labels: {pd_backend: ucm-sync, pd_role: proxy}
+      - targets: ["mooncake-p:8100"]
+        labels: {pd_backend: mooncake-pull, pd_role: p}
+      - targets: ["mooncake-d:8200"]
+        labels: {pd_backend: mooncake-pull, pd_role: d}
+      - targets: ["mooncake-proxy:9000"]
+        labels: {pd_backend: mooncake-pull, pd_role: proxy}
+      # Classic TE 0.3.14+: enable MC_TE_METRIC=1 in each D worker and set
+      # MC_TE_METRIC_HTTP_PORT to its own reachable port. This example uses TP=1.
+      # For TP=2 on this host, append "mooncake-d:9202" for the second worker.
+      - targets: ["mooncake-d:9201"]
+        labels: {pd_backend: mooncake-pull, pd_role: d-te}

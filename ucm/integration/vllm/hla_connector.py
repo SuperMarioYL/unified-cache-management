@@ -35,7 +35,7 @@ from ucm.integration.vllm.ucm_connector import (
     UCMConnectorMetadata,
     UCMDirectConnector,
     UCMLiteConnector,
-    _log_pd_sync_load_result,
+    _report_pd_load_result,
     _record_counter,
     _scheduler_read_block_size,
     _short_list,
@@ -2628,7 +2628,7 @@ class UCMHybridLinearAttentionConnector(UCMDirectConnector, SupportsHMA):
         """Rank-scope every request's load blocks into ``request_data``."""
         for request_id, request in metadata.request_meta.items():
             if not request.load_block_ids[0]:
-                _log_pd_sync_load_result(metadata, request_id, skipped=True)
+                _report_pd_load_result(self, metadata, request_id, skipped=True)
                 continue
             n = getattr(request, "load_full_attn_count", 0)
             _, scoped_ucm, scoped_vllm, scoped_groups = self._scope_blocks(
@@ -2639,7 +2639,7 @@ class UCMHybridLinearAttentionConnector(UCMDirectConnector, SupportsHMA):
                 is_dump=False,
             )
             if not scoped_ucm:
-                _log_pd_sync_load_result(metadata, request_id, skipped=True)
+                _report_pd_load_result(self, metadata, request_id, skipped=True)
                 continue
             self.need_load = True
             self.request_data.append(
@@ -2769,7 +2769,7 @@ class UCMHybridLinearAttentionConnector(UCMDirectConnector, SupportsHMA):
                     self._mark_load_failed(metadata, request_id)
                     num_loaded_block -= n_blocks
             if request_id not in self._failure_req_ids:
-                _log_pd_sync_load_result(metadata, request_id)
+                _report_pd_load_result(self, metadata, request_id)
 
         load_end_time = time.perf_counter() * 1000
         load_duration_ms = load_end_time - load_start_time
@@ -3092,7 +3092,7 @@ class UCMHybridLinearAttentionLayerWiseConnector(UCMHybridLinearAttentionConnect
                 if pending and pair_key in pending:
                     pending.remove(pair_key)
                     if not pending and request_id not in self._failure_req_ids:
-                        _log_pd_sync_load_result(metadata, request_id)
+                        _report_pd_load_result(self, metadata, request_id)
         self._load_bytes_total += self._load_bytes_by_pair.pop(pair_key, 0)
 
     def _record_load_bytes(self) -> None:
@@ -3328,9 +3328,9 @@ class UCMHybridLinearAttentionLayerWiseConnector(UCMHybridLinearAttentionConnect
             return
 
         # Several layers can alias one (group, slot) Store task on this rank.
-        if metadata.pd_sync_load_req_ids:
+        if metadata.pd_handoff_req_ids:
             for request_id, _, _, _, scoped_groups in self.request_data:
-                if request_id in metadata.pd_sync_load_req_ids:
+                if request_id in metadata.pd_handoff_req_ids:
                     groups = set(scoped_groups)
                     self._pd_pending_pairs[request_id] = {
                         (self.layer_to_group[name], self.layer_to_slot[name])
@@ -3338,7 +3338,7 @@ class UCMHybridLinearAttentionLayerWiseConnector(UCMHybridLinearAttentionConnect
                         if self.layer_to_group[name] in groups
                     }
                     if not self._pd_pending_pairs[request_id]:
-                        _log_pd_sync_load_result(metadata, request_id, skipped=True)
+                        _report_pd_load_result(self, metadata, request_id, skipped=True)
 
         # Ensure do_mamba_copy_block (preprocess_mamba, compute stream)
         # has completed before load DMA (store stream) can overwrite the

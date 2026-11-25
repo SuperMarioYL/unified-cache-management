@@ -193,7 +193,7 @@ def hla():
         "torch": SimpleNamespace(Tensor=FakeTensor),
         "logger": MagicMock(),
         "ucmmetrics": MagicMock(),
-        "_log_pd_sync_load_result": MagicMock(),
+        "_report_pd_load_result": MagicMock(),
         "current_platform": SimpleNamespace(
             device_type="npu", is_cuda_alike=lambda: False
         ),
@@ -259,7 +259,7 @@ def test_direct_load_splits_shared_and_private_tasks_and_drains_failures(
     hla, direct_load_connector, failure
 ):
     connector = direct_load_connector
-    connector._get_connector_metadata().pd_sync_load_req_ids.add("req")
+    connector._get_connector_metadata().pd_handoff_req_ids.add("req")
     submissions = []
     waits = []
 
@@ -272,7 +272,7 @@ def test_direct_load_splits_shared_and_private_tasks_and_drains_failures(
         return SimpleNamespace(label=label)
 
     def wait(task):
-        hla._log_pd_sync_load_result.assert_not_called()
+        hla._report_pd_load_result.assert_not_called()
         waits.append(task.label)
         if failure == f"wait_{task.label}":
             raise RuntimeError("wait failed")
@@ -302,12 +302,12 @@ def test_direct_load_splits_shared_and_private_tasks_and_drains_failures(
     stats = hla.ucmmetrics.update_stats.call_args.args[0]
     assert stats["load_requests_num"] == (0 if failure else 1)
     if failure:
-        hla._log_pd_sync_load_result.assert_not_called()
+        hla._report_pd_load_result.assert_not_called()
         assert connector._failure_req_ids == {"req"}
         assert connector._invalid_block_ids == {10, 11, 20, 21}
     else:
-        hla._log_pd_sync_load_result.assert_called_once_with(
-            connector._get_connector_metadata(), "req"
+        hla._report_pd_load_result.assert_called_once_with(
+            connector, connector._get_connector_metadata(), "req"
         )
         assert stats["load_blocks_num"] == 4
         assert stats["load_bytes_total"] == 160
@@ -1262,7 +1262,7 @@ def _layerwise_start_load_fixture(hla, cudagraph_mode: str):
 
 def test_pd_layerwise_completion_waits_for_distinct_pairs_and_ple_unpack(hla):
     worker, _, _ = _layerwise_start_load_fixture(hla, "NONE")
-    worker._get_connector_metadata().pd_sync_load_req_ids.add("req")
+    worker._get_connector_metadata().pd_handoff_req_ids.add("req")
     worker.request_data = [("req", [], [], [], [0, 1])]
     worker.layer_to_group = dict(l0=0, l1=0, l2=1, l3=1)
     worker.layer_to_slot = dict(l0=0, l1=0, l2=0, l3=0)
@@ -1276,18 +1276,18 @@ def test_pd_layerwise_completion_waits_for_distinct_pairs_and_ple_unpack(hla):
         hla.HybridLinearAttentionLayout
     )
     worker.kv_cache_layout.unpack_ple_blocks = MagicMock(
-        side_effect=lambda _: hla._log_pd_sync_load_result.assert_not_called()
+        side_effect=lambda _: hla._report_pd_load_result.assert_not_called()
     )
     worker._load_bytes_by_pair = {}
     worker._load_bytes_total = 0
     worker._wait_layer_load_pair((0, 0))
     worker._wait_layer_load_pair((0, 0))
-    hla._log_pd_sync_load_result.assert_not_called()
+    hla._report_pd_load_result.assert_not_called()
     worker._wait_layer_load_pair((1, 0))
     worker._wait_layer_load_pair((1, 0))
     worker.kv_cache_layout.unpack_ple_blocks.assert_called_once_with([3])
-    hla._log_pd_sync_load_result.assert_called_once_with(
-        worker._get_connector_metadata(), "req"
+    hla._report_pd_load_result.assert_called_once_with(
+        worker, worker._get_connector_metadata(), "req"
     )
 
 
