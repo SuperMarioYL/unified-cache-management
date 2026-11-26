@@ -148,3 +148,26 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       RTD_API_TOKEN: ${{ secrets.RTD_API_TOKEN }}
+
+  queue-retention:
+    name: Queue Nightly retention on the default branch
+    needs: [prepare-nightly, release]
+    # A worker dispatched with GITHUB_TOKEN does not emit a downstream workflow_run.
+    if: ${{ always() && github.actor == 'github-actions[bot]' && needs.prepare-nightly.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch cleanup after publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DRY_RUN: ${{ vars.UCM_NIGHTLY_RETENTION_PREVIEW == 'true' }}
+        run: |
+          set -euo pipefail
+          url="$(gh api --method POST -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-cleanup.yml/dispatches" \
+            -f ref="${DEFAULT_BRANCH}" -F "inputs[dry_run]=${DRY_RUN}" --jq .html_url)"
+          test -n "${url}"
+          echo "[Nightly retention](${url}) · dry run: ${DRY_RUN}" | tee -a "${GITHUB_STEP_SUMMARY}"
