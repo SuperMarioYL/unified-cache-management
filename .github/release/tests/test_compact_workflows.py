@@ -48,16 +48,20 @@ def test_review_observer_is_removed() -> None:
     assert not (WORKFLOWS / "release-review-observer.yml").exists()
 
 
-def test_tag_version_gate_blocks_only_v_tags_and_preserves_other_routes() -> None:
+def test_version_gate_is_required_for_official_formal_tags_only() -> None:
     workflow = _load("release-tag.yml")
     assert workflow["on"]["push"]["tags"] == ["v*", "draft/v*", "nightly/*"]
     jobs = workflow["jobs"]
     gate = jobs["version-check"]
-    assert gate["if"] == "${{ startsWith(github.ref, 'refs/tags/v') }}"
+    assert gate["if"] == (
+        "${{ needs.classify-tag.outputs.publication_scope == 'official' && "
+        "startsWith(github.ref, 'refs/tags/v') }}"
+    )
     assert gate["needs"] == "classify-tag"
     assert jobs["release"]["needs"] == ["classify-tag", "version-check"]
     condition = jobs["release"]["if"]
     assert "!cancelled()" in condition
+    assert "needs.classify-tag.outputs.publication_scope == 'fork' ||" in condition
     assert "!startsWith(github.ref, 'refs/tags/v')" in condition
     assert "needs.version-check.result == 'success'" in condition
     step = next(
@@ -84,6 +88,10 @@ def test_only_successful_version_delivery_can_close_the_milestone() -> None:
     }
     assert observer["concurrency"] == _load("release-operations.yml")["concurrency"]
     report = observer["jobs"]["report"]
+    assert (
+        "github.repository == 'ModelEngine-Group/unified-cache-management'"
+        in report["if"]
+    )
     assert "workflow_run.event == 'push'" in report["if"]
     assert "workflow_run.head_repository.full_name == github.repository" in report["if"]
     assert (
