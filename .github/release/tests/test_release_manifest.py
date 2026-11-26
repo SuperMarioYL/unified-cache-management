@@ -2014,3 +2014,22 @@ class TestCleanupRecords:
                 cleanup_records.CleanupRecordError, match="Release assets"
             ):
                 cleanup_records.record_from_manifest(manifest, self.REPOSITORY)
+
+
+def test_partial_release_notes_report_targets_and_missing_platform_per_registry():
+    hub_ref = "docker.io/example/vllm-openai:release-tag"
+    manifest = _single_family_release_notes_manifest(
+        expected_targets={
+            "ghcr": "ghcr.io/example/vllm-openai:release-tag",
+            "dockerhub": hub_ref,
+        },
+        targets=[{"channel": "dockerhub", "reference": hub_ref}],
+        release_status="images-failed",
+        family_status="failed",
+    )
+    notes = release.render_notes(
+        manifest, repository="example/ucm", asset_urls=_asset_urls(manifest)
+    )
+    assert f"Docker Hub `{hub_ref}`" in notes
+    assert "GHCR missing amd64" in notes
+    assert "ghcr.io/example/vllm-openai:release-tag" not in notes

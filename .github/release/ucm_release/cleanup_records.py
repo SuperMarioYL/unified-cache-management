@@ -92,6 +92,7 @@ class PendingRecovery:
 class CleanupResolution:
     target: CleanupTarget
     pending_recovery: tuple[PendingRecovery, ...] = ()
+    missing_draft_sha: str | None = None
 
 
 RESOURCE_ORDER = {
@@ -264,7 +265,9 @@ def _version_matches_tag(value: object, classification: dict[str, object]) -> bo
     return parsed.public == expected
 
 
-def _sort_key(record: dict[str, Any]) -> tuple[Any, ...]:
+def _sort_key(
+    record: dict[str, Any], recovery_draft_ids: frozenset[int] = frozenset()
+) -> tuple[Any, ...]:
     nightly = version_config.Nightly.parse(record["tag"])
     if nightly:
         # Prefer the new spelling if a legacy tag has the same day and sequence.
@@ -275,7 +278,9 @@ def _sort_key(record: dict[str, Any]) -> tuple[Any, ...]:
         )
         return nightly.date, nightly.sequence, nightly.legacy_base is None, base
     # Release IDs reflect creation order even when a Tag reuses an old commit.
-    identifiers = record["release_ids"]
+    identifiers = (
+        rid for rid in record["release_ids"] if rid not in recovery_draft_ids
+    )
     return (min(identifiers, default=0), record["tag"])
 
 
@@ -942,6 +947,7 @@ def select_retention(
     current_tag: str | None = None,
     pypi_enabled: bool = False,
     latest_branch: str | None = None,
+    recovery_draft_ids: frozenset[int] = frozenset(),
 ) -> RetentionSelection:
     """Count actual unique versions and defer active excess versions.
 
@@ -1003,7 +1009,9 @@ def select_retention(
             and all(record["tag"] != current_tag for record in merged)
         )
         excess_count = max(0, count - max_count)
-        excess = tuple(sorted(merged, key=_sort_key)[:excess_count])
+        # A recovery Draft is not a new release for retention ordering.
+        ordered = sorted(merged, key=lambda r: _sort_key(r, recovery_draft_ids))
+        excess = tuple(ordered[:excess_count])
     candidate_tags = {
         record["tag"] for record in excess if record["tag"] != current_tag
     }

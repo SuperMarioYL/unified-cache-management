@@ -71,7 +71,10 @@ def test_nightly_mutations_share_an_outer_lock_separate_from_the_core_tag_lock()
         == "ucm-release-${{ github.repository_id }}-${{ inputs.git_tag }}"
     )
     retention = core["jobs"]["retain-releases"]
-    assert "inputs.release_type != 'nightly'" in retention["if"]
+    assert (
+        "inputs.release_type == 'stable' || inputs.release_type == 'prerelease'"
+        in retention["if"]
+    )
     assert "always()" in retention["if"]
     assert not any(
         step.get("id") == "retention"

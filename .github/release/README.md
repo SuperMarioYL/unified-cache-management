@@ -327,7 +327,11 @@ If image publication is disabled while other channels remain enabled, the image
 stages are skipped and publication continues only through those enabled
 channels. If every channel is disabled, validation completes without an
 external write. If requested image publication fails, already published
-artifacts remain usable and the public Release is marked `images-failed`. OCI
+artifacts remain usable and the public Release is marked `images-failed`. After the build matrix finishes, each registry receives a family index as soon
+as that registry has a verified digest for every planned architecture in the
+family. A failed CUDA member does not block a complete Ascend family. Release
+notes list usable references per registry and the missing architectures. The
+complete public manifest still requires all profile-enabled targets. OCI
 archives are not uploaded to GitHub Release. PyPI and Docker Hub follow the
 selected Release Profile in `release.yaml`, which is the sole authority for
 channel switches. Official releases use production targets. Forks use TestPyPI
@@ -641,9 +645,11 @@ artifact upload saves the local copy even if the remote write fails.
 
 Nightly preparation and the Nightly Tag caller use the local `record` command
 before a Release exists. Their artifact preserves the initial Tag/SHA binding
-when preparation fails or is cancelled. The independent `retain-releases` job
-runs after success or failure for non-Nightly publications; Nightly uses the
-separate lifecycle sweep described below.
+when preparation fails or is cancelled. Draft retention runs in the separate UCM Draft Retention workflow after a
+trusted Draft Tag run finishes, including failure and cancellation. Its report
+lists blocked versions independently of the new release. Manual dispatch on
+the default branch previews by default and accepts a reviewed historical
+inventory. Stable and prerelease use inline retention; Nightly uses its own sweep.
 
 Historical failures can recover an exact repository-owned Actions plan and
 persist it before deleting its run. A plan-less early failure is recoverable
@@ -651,8 +657,11 @@ when all-attempt job results prove every release publisher was skipped.
 Missing, expired or conflicting evidence otherwise reports a cleanup failure
 while the version remains in the count. Non-Nightly `--dry-run` resolves the
 same read-only target as actual cleanup, including pending historical evidence.
-Actual execution explicitly saves and reads back that evidence before deletion;
-the preview does not upload recovery assets or delete resources.
+If an old Draft still has a Git Tag but its Release is gone, execution verifies
+the legacy run against the live Tag commit and restores an unpublished Draft to
+hold the recovered snapshots. It reads them back before deleting resources. A
+retry reuses that Draft, whose new ID does not change retention order. Preview
+only reports the deletion targets and never creates a recovery Draft.
 
 Builders, base runtimes and PyPI packages are never cleanup targets. Existing
 Nightly `release-cleanup.json` records and `ucm-nightly-cleanup-*` artifacts remain
@@ -768,7 +777,7 @@ selection, so a SGLang `main-cann*` image can still be requested this way.
 
 ## Artifact names
 
-Artifacts are scoped by run and overwritten by failed-job reruns:
+Build inputs and staged results are scoped by run:
 
 - `ucm-runtime-candidates-run-<run>`;
 - `ucm-runtime-inspection-run-<run>`;
@@ -778,17 +787,20 @@ Artifacts are scoped by run and overwritten by failed-job reruns:
 - `ucm-wheel-<wheel-id>-run-<run>`;
 - `ucm-chart-run-<run>`;
 - `ucm-image-<image-id>-run-<run>` for PR Robot trust-boundary handoff only;
-- image member/index receipt artifacts;
 - `ucm-release-stage-run-<run>` containing internal `release-state.json`.
 
 Candidates or selection artifacts containing SGLang `main` images are no longer
 accepted. Regenerate discovery and selection with the updated code before
 planning; rerunning only the failed Plan job reuses the unsupported artifacts.
 
-When image publication is enabled, trusted Tag builds keep the verified OCI
-archive on the native build runner, copy it directly to GHCR, and upload only
-the small member receipt. They do not retain multi-gigabyte OCI archives as
-Actions artifacts. PR Robot builds keep the separate read-only build to trusted
+Tag publishers upload small member and index receipts per run and attempt.
+Receipts bind to the source SHA and frozen plan hash. The latest observation
+drives the release status; earlier verified digests allow a retry to copy from
+a registry without rebuilding the OCI archive. An existing tag with a different
+digest or without matching evidence is reported as a conflict and left intact.
+If a push succeeded but the receipt upload failed, verify the registry contents
+and recover the evidence before attempting that target again. OCI archives stay
+on the native build runner. PR Robot builds keep the separate read-only build to trusted
 publisher artifact boundary.
 
 ## Verification

@@ -87,14 +87,17 @@ def execute_cleanup(
         return CleanupReport(target.tag, False, 4, tuple(failures), skipped)
     if skipped:
         return CleanupReport(target.tag, False, None, (), skipped)
-    holders = tuple(
-        release for release in target.releases if release.holds_recovery_data
-    )
-    holders += tuple(action for action in target.actions if action.holds_recovery_data)
-    failures = _run_phase(remote, holders, sleeper=sleeper, fail_resource=fail_resource)
-    return CleanupReport(
-        target.tag, not failures, 4 if failures else None, tuple(failures)
-    )
+    # Keep the restored Draft discoverable if deleting an evidence-holding run fails.
+    for resources in (target.actions, target.releases):
+        holders = tuple(
+            resource for resource in resources if resource.holds_recovery_data
+        )
+        failures = _run_phase(
+            remote, holders, sleeper=sleeper, fail_resource=fail_resource
+        )
+        if failures:
+            return CleanupReport(target.tag, False, 4, tuple(failures))
+    return CleanupReport(target.tag, True, None, ())
 
 
 def resource_failure(
@@ -493,9 +496,9 @@ def _run_targets(
                     skipped.extend(preview_skips)
                 results.append(result)
                 continue
-            inventory.persist_recovery(resolution)
+            target = inventory.prepare_cleanup(record, resolution)
             report = execute_cleanup(
-                resolution.target, remote, fail_resource=arguments.fail_resource
+                target, remote, fail_resource=arguments.fail_resource
             )
         except ActiveRelease as error:
             results.append(
@@ -613,7 +616,11 @@ def _run_retention(
         return []
     catalog = _catalog(arguments, remote, arguments.release_type)
     selection = records.select_retention(
-        catalog.records, arguments.max_count, catalog.active_tags, **options
+        catalog.records,
+        arguments.max_count,
+        catalog.active_tags,
+        recovery_draft_ids=catalog.recovery_draft_ids,
+        **options,
     )
     if selection.skipped_reason is not None:
         print(selection.skipped_reason)
@@ -621,19 +628,25 @@ def _run_retention(
             getattr(arguments, "report", None), {"status": "skipped", "results": []}
         )
         return []
-    orphan_candidates = [
-        record for record in catalog.orphans if record["tag"] not in catalog.active_tags
-    ]
-    orphan_deferred = [
-        record for record in catalog.orphans if record["tag"] in catalog.active_tags
-    ]
+    # A just-completed Tag may have only registry evidence. It is still the
+    # current publication, even if catalog discovery classifies it as an orphan.
+    orphan_candidates = []
+    kept = list(selection.kept)
+    deferred = list(selection.deferred)
+    for record in catalog.orphans:
+        if record["tag"] == arguments.current_tag:
+            kept.append(record)
+        elif record["tag"] in catalog.active_tags:
+            deferred.append(record)
+        else:
+            orphan_candidates.append(record)
     return _run_targets(
         arguments,
         remote,
         (*selection.candidates, *orphan_candidates),
         blocked=catalog.blocked,
-        kept=selection.kept,
-        deferred=(*selection.deferred, *orphan_deferred),
+        kept=kept,
+        deferred=deferred,
     )
 
 
