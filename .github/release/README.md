@@ -661,8 +661,12 @@ The public Schema 10 manifest continues to require complete publication. Schema 
 manifests remain readable, and the internal cleanup reader also supports proven
 legacy Schema 6 records without weakening the public contract.
 
-`nightly-cleanup.yml` runs after trusted Nightly or Nightly-Tag workflows finish,
-including failure and cancellation. It uses default-branch code and shares a
+`nightly-cleanup.yml` runs after trusted Nightly or Nightly-Tag workflows finish.
+Workers started by the scheduler explicitly dispatch cleanup on the default
+branch and link its run in their job summary. They forward
+`UCM_NIGHTLY_RETENTION_PREVIEW=true` as a dry run. User-started Nightlies and
+Nightly Tag pushes trigger cleanup through their completion event, including
+failure and cancellation. Cleanup uses default-branch code and shares a
 repository lifecycle concurrency group with both publishing entrypoints and
 manual Nightly cleanup, with `queue: max` and `cancel-in-progress: false`. The
 common release core retains its separate Tag-level group. Non-Nightly cleanup
